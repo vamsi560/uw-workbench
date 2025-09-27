@@ -8,7 +8,13 @@ from datetime import datetime
 import uuid
 
 from database import get_db, Submission, WorkItem, create_tables
-from file_parsers import parse_attachments
+# Use minimal file parser for Vercel deployment
+try:
+    from file_parsers_minimal import parse_attachments
+    logger.info("Using minimal file parser for Vercel deployment")
+except ImportError:
+    from file_parsers import parse_attachments
+    logger.info("Using full file parser")
 from llm_service import llm_service
 from models import (
     EmailIntakeRequest, EmailIntakeResponse, 
