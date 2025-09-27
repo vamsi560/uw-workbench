@@ -12,12 +12,6 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash-exp"  # Updated to latest model
     max_tokens: int = 1000
     
-    # Alternative LLM APIs (optional)
-    openai_api_key: Optional[str] = None
-    azure_openai_endpoint: Optional[str] = None
-    azure_openai_api_key: Optional[str] = None
-    azure_openai_deployment: Optional[str] = None
-    
     # Application Settings
     log_level: str = "INFO"
     upload_dir: str = "uploads"

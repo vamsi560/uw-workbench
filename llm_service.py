@@ -1,9 +1,7 @@
 import json
 import logging
 from typing import Dict, Any, Optional
-import openai
 import google.generativeai as genai
-from azure.ai.openai import AzureOpenAI
 
 from config import settings
 
@@ -11,25 +9,10 @@ logger = logging.getLogger(__name__)
 
 
 class LLMService:
-    """Service for interacting with various LLM providers"""
+    """Service for interacting with Google Gemini LLM"""
     
     def __init__(self):
-        self.openai_client = None
-        self.azure_client = None
         self.google_client = None
-        
-        # Initialize OpenAI client if API key is provided
-        if settings.openai_api_key:
-            openai.api_key = settings.openai_api_key
-            self.openai_client = openai
-        
-        # Initialize Azure OpenAI client if configured
-        if settings.azure_openai_endpoint and settings.azure_openai_api_key:
-            self.azure_client = AzureOpenAI(
-                azure_endpoint=settings.azure_openai_endpoint,
-                api_key=settings.azure_openai_api_key,
-                api_version="2024-02-15-preview"
-            )
         
         # Initialize Google Gemini client with configured model
         if settings.gemini_api_key:
@@ -37,23 +20,18 @@ class LLMService:
             self.google_client = genai.GenerativeModel(settings.gemini_model)
     
     def extract_insurance_data(self, combined_text: str) -> Dict[str, Any]:
-        """Extract structured insurance data from text using LLM"""
+        """Extract structured insurance data from text using Google Gemini"""
         
         prompt = self._create_extraction_prompt(combined_text)
         
-        # Try different LLM providers in order of preference
         try:
             if self.google_client:
                 return self._extract_with_google(prompt)
-            elif self.openai_client:
-                return self._extract_with_openai(prompt)
-            elif self.azure_client:
-                return self._extract_with_azure(prompt)
             else:
-                raise Exception("No LLM provider configured")
+                raise Exception("Google Gemini not configured")
                 
         except Exception as e:
-            logger.error(f"Error extracting data with LLM: {str(e)}")
+            logger.error(f"Error extracting data with Gemini: {str(e)}")
             # Return default structure if LLM fails
             return self._get_default_response()
     
@@ -81,48 +59,6 @@ Instructions:
 - For amounts, include currency if specified
 - Return ONLY the JSON object, no additional text or explanation
 """
-    
-    def _extract_with_openai(self, prompt: str) -> Dict[str, Any]:
-        """Extract data using OpenAI"""
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "You are an expert insurance data extraction assistant. Always return valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=500
-            )
-            
-            content = response.choices[0].message.content.strip()
-            logger.info(f"OpenAI response: {content}")
-            return self._parse_json_response(content)
-            
-        except Exception as e:
-            logger.error(f"Error with OpenAI: {str(e)}")
-            raise
-    
-    def _extract_with_azure(self, prompt: str) -> Dict[str, Any]:
-        """Extract data using Azure OpenAI"""
-        try:
-            response = self.azure_client.chat.completions.create(
-                model=settings.azure_openai_deployment,
-                messages=[
-                    {"role": "system", "content": "You are an expert insurance data extraction assistant. Always return valid JSON."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.1,
-                max_tokens=500
-            )
-            
-            content = response.choices[0].message.content.strip()
-            logger.info(f"Azure OpenAI response: {content}")
-            return self._parse_json_response(content)
-            
-        except Exception as e:
-            logger.error(f"Error with Azure OpenAI: {str(e)}")
-            raise
     
     def _extract_with_google(self, prompt: str) -> Dict[str, Any]:
         """Extract data using Google Gemini"""
