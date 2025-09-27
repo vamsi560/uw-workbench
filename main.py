@@ -8,13 +8,6 @@ from datetime import datetime
 import uuid
 
 from database import get_db, Submission, WorkItem, create_tables
-# Use minimal file parser for Vercel deployment
-try:
-    from file_parsers_minimal import parse_attachments
-    logger.info("Using minimal file parser for Vercel deployment")
-except ImportError:
-    from file_parsers import parse_attachments
-    logger.info("Using full file parser")
 from llm_service import llm_service
 from models import (
     EmailIntakeRequest, EmailIntakeResponse, 
@@ -24,9 +17,17 @@ from models import (
 from config import settings
 from logging_config import configure_logging, get_logger
 
-# Configure logging
+# Configure logging first
 configure_logging()
 logger = get_logger(__name__)
+
+# Use minimal file parser for Vercel deployment
+try:
+    from file_parsers_minimal import parse_attachments
+    logger.info("Using minimal file parser for Vercel deployment")
+except ImportError:
+    from file_parsers import parse_attachments
+    logger.info("Using full file parser")
 
 # Create FastAPI app
 app = FastAPI(
