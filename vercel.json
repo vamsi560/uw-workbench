@@ -2,9 +2,8 @@
   "version": 2,
   "functions": {
     "main.py": {
-      "runtime": "@vercel/python",
-      "maxDuration": 30,
-      "memory": 1024
+      "runtime": "python3.9",
+      "maxDuration": 30
     }
   },
   "routes": [
