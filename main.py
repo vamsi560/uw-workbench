@@ -301,6 +301,23 @@ async def get_all_submissions(
         )
 
 
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "Underwriting Workbench API",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "email_intake": "/api/email/intake",
+            "submissions": "/api/submissions",
+            "submission_detail": "/api/submissions/{submission_ref}",
+            "confirm_submission": "/api/submissions/confirm/{submission_ref}"
+        }
+    }
+
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
