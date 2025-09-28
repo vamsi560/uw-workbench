@@ -357,7 +357,6 @@ async def poll_workitems(
         # Filter by timestamp if provided
         if since:
             try:
-                from datetime import datetime
                 since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
                 query = query.filter(Submission.created_at > since_dt)
             except ValueError:
