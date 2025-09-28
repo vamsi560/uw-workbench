@@ -2,7 +2,10 @@
 
 ## 🚀 **Overview**
 
-This implementation adds real-time WebSocket functionality to your FastAPI backend, allowing the frontend to receive instant updates when new work items are created or status changes occur.
+This implementation adds real-time updates to your FastAPI backend. It supports:
+
+- WebSockets (for platforms that support them)
+- Server-Sent Events (SSE) for Vercel compatibility
 
 ## 📁 **Files Added/Modified**
 
@@ -43,14 +46,33 @@ async def websocket_endpoint(websocket: WebSocket):
     # Manages disconnections gracefully
 ```
 
-### **3. Integration with Email Intake**
+### **3. SSE Endpoint (`/sse/workitems`)**
+
+An SSE endpoint is available for platforms where WebSockets are not supported:
+
+```python
+@app.get("/sse/workitems")
+async def sse_workitems():
+    return StreamingResponse(_sse_event_stream(), media_type="text/event-stream")
+```
+
+To broadcast:
+
+```python
+await sse_broadcast(json.dumps({
+  "event": "new_workitem",
+  "data": { ... }
+}))
+```
+
+### **4. Integration with Email Intake**
 
 The existing `/api/email/intake` endpoint now:
 1. Processes email and creates submission
 2. **Automatically broadcasts** the new work item to all connected clients
 3. Returns the same response as before
 
-### **4. Test Endpoint (`/api/test/workitem`)**
+### **5. Test Endpoint (`/api/test/workitem`)**
 
 ```python
 @app.post("/api/test/workitem")
@@ -130,7 +152,22 @@ socket.onclose = function(event) {
 };
 ```
 
-### **2. Complete Frontend Example**
+### **2. SSE Frontend Example**
+
+```html
+<script>
+  const es = new EventSource('https://your-app.vercel.app/sse/workitems');
+  es.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.event === 'new_workitem') {
+      console.log('New Work Item (SSE):', msg.data);
+    }
+  };
+  es.onerror = () => console.warn('SSE connection error');
+</script>
+```
+
+### **3. Complete Frontend Example**
 
 The `frontend_websocket_example.html` includes:
 - **Real-time dashboard** with work items
