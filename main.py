@@ -1,11 +1,12 @@
 import logging
 from typing import List
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from datetime import datetime
 import uuid
+import json
 
 from database import get_db, Submission, WorkItem, create_tables
 from llm_service import llm_service
@@ -16,6 +17,7 @@ from models import (
 )
 from config import settings
 from logging_config import configure_logging, get_logger
+from websocket_manager import websocket_manager
 
 # Configure logging first
 configure_logging()
@@ -121,6 +123,9 @@ async def email_intake(
         db.refresh(submission)
         
         logger.info("Submission created", submission_id=submission.submission_id, submission_ref=submission_ref)
+        
+        # Broadcast new work item to all connected WebSocket clients
+        await broadcast_new_workitem(submission)
         
         return EmailIntakeResponse(
             submission_ref=str(submission_ref),
@@ -325,6 +330,91 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+
+@app.websocket("/ws/workitems")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time work item updates"""
+    await websocket_manager.connect(websocket)
+    try:
+        while True:
+            # Keep the connection alive and handle any incoming messages
+            data = await websocket.receive_text()
+            # Echo back any messages (optional)
+            await websocket_manager.send_personal_message(f"Echo: {data}", websocket)
+    except WebSocketDisconnect:
+        await websocket_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        await websocket_manager.disconnect(websocket)
+
+
+@app.post("/api/test/workitem")
+async def test_workitem(db: Session = Depends(get_db)):
+    """Test endpoint to create a fake work item and broadcast it"""
+    try:
+        # Create a test submission
+        submission_ref = str(uuid.uuid4())
+        last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
+        next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
+        
+        test_submission = Submission(
+            submission_id=next_submission_id,
+            submission_ref=submission_ref,
+            subject="Test Insurance Policy Submission",
+            sender_email="test@example.com",
+            body_text="This is a test work item created for WebSocket testing.",
+            extracted_fields={
+                "insured_name": "Test Company Inc",
+                "policy_type": "General Liability",
+                "coverage_amount": "$1,000,000",
+                "effective_date": "2024-01-01",
+                "broker": "Test Insurance Agency"
+            },
+            task_status="pending"
+        )
+        
+        db.add(test_submission)
+        db.commit()
+        db.refresh(test_submission)
+        
+        # Broadcast the test work item
+        await broadcast_new_workitem(test_submission)
+        
+        return {
+            "message": "Test work item created and broadcasted",
+            "submission_id": test_submission.submission_id,
+            "submission_ref": str(submission_ref),
+            "websocket_connections": websocket_manager.get_connection_count()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error creating test work item: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error creating test work item: {str(e)}"
+        )
+
+
+async def broadcast_new_workitem(submission: Submission):
+    """Broadcast a new work item to all connected WebSocket clients"""
+    try:
+        workitem_data = {
+            "id": submission.id,
+            "submission_id": submission.submission_id,
+            "submission_ref": str(submission.submission_ref),
+            "subject": submission.subject or "No subject",
+            "from_email": submission.sender_email or "Unknown sender",
+            "created_at": submission.created_at.isoformat() + "Z" if submission.created_at else None,
+            "status": submission.task_status or "pending",
+            "extracted_fields": submission.extracted_fields or {}
+        }
+        
+        await websocket_manager.broadcast_workitem(workitem_data)
+        logger.info(f"Broadcasted new work item: {submission.submission_id}")
+        
+    except Exception as e:
+        logger.error(f"Error broadcasting work item: {str(e)}")
 
 
 if __name__ == "__main__":
