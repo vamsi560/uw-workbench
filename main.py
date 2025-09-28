@@ -10,7 +10,7 @@ import uuid
 from database import get_db, Submission, WorkItem, create_tables
 from llm_service import llm_service
 from models import (
-    EmailIntakeRequest, EmailIntakeResponse, 
+    EmailIntakePayload, EmailIntakeResponse, 
     SubmissionResponse, SubmissionConfirmRequest, 
     SubmissionConfirmResponse, ErrorResponse
 )
@@ -64,7 +64,7 @@ async def global_exception_handler(request, exc):
 
 @app.post("/api/email/intake", response_model=EmailIntakeResponse)
 async def email_intake(
-    request: EmailIntakeRequest,
+    request: EmailIntakePayload,
     db: Session = Depends(get_db)
 ):
     """
@@ -80,16 +80,19 @@ async def email_intake(
         attachment_text = ""
         if request.attachments:
             logger.info("Processing attachments", count=len(request.attachments))
-            attachment_text = parse_attachments(
-                [{"filename": att.filename, "contentBase64": att.contentBase64} 
-                 for att in request.attachments],
-                settings.upload_dir
-            )
+            # Filter out attachments with missing data
+            valid_attachments = [
+                {"filename": att.filename, "contentBase64": att.contentBase64} 
+                for att in request.attachments 
+                if att.filename and att.contentBase64
+            ]
+            if valid_attachments:
+                attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
         
-        # Combine email body and attachment text
-        combined_text = f"Email Subject: {request.subject}\n"
-        combined_text += f"From: {request.from_email}\n"
-        combined_text += f"Email Body:\n{request.body}\n\n"
+        # Combine email body and attachment text with null safety
+        combined_text = f"Email Subject: {request.subject or 'No subject'}\n"
+        combined_text += f"From: {request.from_email or 'Unknown sender'}\n"
+        combined_text += f"Email Body:\n{request.body or 'No body content'}\n\n"
         
         if attachment_text:
             combined_text += f"Attachment Content:\n{attachment_text}"
@@ -103,13 +106,13 @@ async def email_intake(
         last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
         next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
         
-        # Create submission record directly
+        # Create submission record directly with null safety
         submission = Submission(
             submission_id=next_submission_id,
             submission_ref=submission_ref,
-            subject=request.subject,
-            sender_email=request.from_email,
-            body_text=request.body,
+            subject=request.subject or "No subject",
+            sender_email=request.from_email or "Unknown sender",
+            body_text=request.body or "No body content",
             extracted_fields=extracted_data,
             task_status="pending"
         )

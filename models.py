@@ -1,20 +1,20 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
 
 
-class AttachmentModel(BaseModel):
-    filename: str
-    contentBase64: str
+class AttachmentPayload(BaseModel):
+    filename: Optional[str] = Field(None, description="Name of the attachment file")
+    contentBase64: Optional[str] = Field(None, description="Base64 encoded file content")
 
 
-class EmailIntakeRequest(BaseModel):
-    subject: str
-    from_email: str  # Using from_email instead of 'from' as it's a Python keyword
-    received_at: datetime
-    body: str
-    attachments: List[AttachmentModel] = []
+class EmailIntakePayload(BaseModel):
+    subject: Optional[str] = Field(None, description="Email subject line")
+    from_email: Optional[str] = Field(None, description="Email sender address")
+    received_at: Optional[str] = Field(None, description="Email received timestamp")
+    body: Optional[str] = Field(None, description="Email body content")
+    attachments: List[AttachmentPayload] = Field(default_factory=list, description="List of email attachments")
 
 
 class EmailIntakeResponse(BaseModel):

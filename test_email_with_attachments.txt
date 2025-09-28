@@ -1,0 +1,28 @@
+To: your-logic-app-email@yourdomain.com
+From: john.smith@smithinsurance.com
+Subject: Insurance Policy Submission - General Liability Coverage Request
+
+Dear Underwriting Team,
+
+Please find attached the insurance application and supporting documents for ABC Manufacturing Corp.
+
+**Key Details:**
+- Insured: ABC Manufacturing Corp
+- Policy Type: General Liability
+- Coverage: $2,000,000 per occurrence
+- Effective: March 1, 2024
+- Broker: John Smith, Smith Insurance Agency
+
+**Attachments:**
+1. insurance_application.docx - Completed application form
+2. financial_statements.xlsx - Last 3 years financial data
+3. safety_inspection.pdf - Recent safety inspection report
+
+Please review and provide a quote within 48 hours.
+
+Best regards,
+John Smith
+Senior Insurance Broker
+Smith Insurance Agency
+Phone: (555) 123-4567
+Email: john.smith@smithinsurance.com

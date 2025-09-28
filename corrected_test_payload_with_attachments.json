@@ -1,0 +1,16 @@
+{
+  "subject": "Insurance Policy Submission - General Liability Coverage Request",
+  "from_email": "john.smith@smithinsurance.com",
+  "received_at": "2024-01-15T10:30:00Z",
+  "body": "Dear Underwriting Team,\r\n\r\nPlease find attached the insurance application and supporting documents for ABC Manufacturing Corp.\r\n\r\n**Key Details:**\r\n- Insured: ABC Manufacturing Corp\r\n- Policy Type: General Liability\r\n- Coverage: $2,000,000 per occurrence\r\n- Effective: March 1, 2024\r\n- Broker: John Smith, Smith Insurance Agency\r\n\r\nBest regards,\r\nJohn Smith",
+  "attachments": [
+    {
+      "filename": "insurance_application.docx",
+      "contentBase64": "UEsDBBQAAAAIAA..." 
+    },
+    {
+      "filename": "financial_statements.xlsx",
+      "contentBase64": "UEsDBBQAAAAIAA..."
+    }
+  ]
+}
