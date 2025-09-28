@@ -101,6 +101,11 @@ class WorkItem(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Add unique constraint to prevent duplicate work items per submission
+    __table_args__ = (
+        {'extend_existing': True}
+    )
+    
     # Relationships
     submission = relationship("Submission", back_populates="work_items")
     risk_assessments = relationship("RiskAssessment", back_populates="work_item", cascade="all, delete-orphan")

@@ -307,7 +307,7 @@ async def confirm_submission(
     db: Session = Depends(get_db)
 ):
     """
-    Confirm a submission and assign to underwriter
+    Confirm a submission and assign to underwriter - Updates existing work item instead of creating duplicate
     """
     logger.info("Confirming submission", submission_ref=submission_ref)
     
@@ -327,21 +327,31 @@ async def confirm_submission(
         # Update submission with assignment
         submission.assigned_to = assigned_underwriter
         submission.task_status = "in_progress"
-        db.commit()
         
-        logger.info("Submission updated with assignment", submission_ref=submission_ref, assigned_to=assigned_underwriter)
+        # Find existing work item for this submission (should already exist from email_intake)
+        work_item = db.query(WorkItem).filter(WorkItem.submission_id == submission.id).first()
         
-        # Create work item
-        work_item = WorkItem(
-            submission_id=submission.id,
-            assigned_to=assigned_underwriter,
-            status="pending"
-        )
-        db.add(work_item)
+        if work_item:
+            # Update existing work item
+            work_item.assigned_to = assigned_underwriter
+            work_item.status = WorkItemStatus.IN_REVIEW
+            work_item.updated_at = datetime.utcnow()
+            logger.info("Updated existing work item", work_item_id=work_item.id, assigned_to=assigned_underwriter)
+        else:
+            # Create work item only if none exists (fallback scenario)
+            work_item = WorkItem(
+                submission_id=submission.id,
+                title=submission.subject or "Confirmed Submission",
+                description=f"Email from {submission.sender_email}",
+                assigned_to=assigned_underwriter,
+                status=WorkItemStatus.IN_REVIEW,
+                priority=WorkItemPriority.MEDIUM
+            )
+            db.add(work_item)
+            logger.info("Created new work item (fallback)", assigned_to=assigned_underwriter)
+        
         db.commit()
         db.refresh(work_item)
-        
-        logger.info("Work item created", work_item_id=work_item.id, assigned_to=assigned_underwriter)
         
         return SubmissionConfirmResponse(
             submission_id=submission.submission_id,
@@ -380,6 +390,23 @@ def assign_underwriter(preferred_email: str = None) -> str:
     # For now, just return the first one
     # In production, you'd implement proper round-robin logic
     return underwriters[0]
+
+
+def get_or_create_work_item(submission_id: int, db: Session) -> WorkItem:
+    """
+    Get existing work item for submission or create one if none exists
+    Prevents duplicate work item creation
+    """
+    # Check if work item already exists
+    existing_work_item = db.query(WorkItem).filter(WorkItem.submission_id == submission_id).first()
+    
+    if existing_work_item:
+        return existing_work_item
+    
+    # If no work item exists, this is likely an edge case
+    # Log it and return None to let calling code handle appropriately
+    logger.warning(f"No work item found for submission_id {submission_id}")
+    return None
 
 
 @app.get("/api/submissions", response_model=List[SubmissionResponse])
@@ -918,6 +945,74 @@ async def refresh_data(db: Session = Depends(get_db)):
             "new_submissions": new_workitems
         },
         "message": "Data refreshed successfully"
+    }
+
+
+@app.post("/api/cleanup-duplicates")
+async def cleanup_duplicate_work_items(db: Session = Depends(get_db)):
+    """Cleanup duplicate work items - keeps the most recent one per submission"""
+    try:
+        # Find submissions with multiple work items
+        from sqlalchemy import func
+        
+        duplicates = db.query(WorkItem.submission_id, func.count(WorkItem.id).label('count')).group_by(WorkItem.submission_id).having(func.count(WorkItem.id) > 1).all()
+        
+        removed_count = 0
+        for submission_id, count in duplicates:
+            # Get all work items for this submission, ordered by creation date (keep newest)
+            work_items = db.query(WorkItem).filter(WorkItem.submission_id == submission_id).order_by(WorkItem.created_at.desc()).all()
+            
+            # Remove all except the first (most recent)
+            for work_item in work_items[1:]:
+                db.delete(work_item)
+                removed_count += 1
+        
+        db.commit()
+        
+        return {
+            "message": f"Cleanup completed. Removed {removed_count} duplicate work items.",
+            "duplicates_found": len(duplicates),
+            "items_removed": removed_count
+        }
+        
+    except Exception as e:
+        logger.error("Error during cleanup", error=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
+
+@app.get("/api/debug/duplicates")
+async def debug_duplicate_work_items(db: Session = Depends(get_db)):
+    """Debug endpoint to identify duplicate work items"""
+    from sqlalchemy import func
+    
+    # Find submissions with multiple work items
+    duplicates = db.query(
+        WorkItem.submission_id, 
+        func.count(WorkItem.id).label('work_item_count'),
+        func.array_agg(WorkItem.id).label('work_item_ids')
+    ).group_by(WorkItem.submission_id).having(func.count(WorkItem.id) > 1).all()
+    
+    total_work_items = db.query(WorkItem).count()
+    total_submissions = db.query(Submission).count()
+    
+    duplicate_details = []
+    for submission_id, count, work_item_ids in duplicates:
+        submission = db.query(Submission).filter(Submission.id == submission_id).first()
+        duplicate_details.append({
+            "submission_id": submission_id,
+            "submission_ref": str(submission.submission_ref) if submission else "Unknown",
+            "work_item_count": count,
+            "work_item_ids": work_item_ids
+        })
+    
+    return {
+        "total_work_items": total_work_items,
+        "total_submissions": total_submissions,
+        "submissions_with_duplicates": len(duplicates),
+        "duplicate_details": duplicate_details,
+        "expected_work_items": total_submissions,
+        "excess_work_items": total_work_items - total_submissions
     }
 
 
