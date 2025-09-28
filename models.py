@@ -12,7 +12,8 @@ class AttachmentPayload(BaseModel):
 
 class EmailIntakePayload(BaseModel):
     subject: Optional[str] = Field(None, description="Email subject line")
-    from_email: Optional[str] = Field(None, description="Email sender address")
+    sender_email: Optional[str] = Field(None, description="Email sender address")
+    from_email: Optional[str] = Field(None, description="Email sender address (legacy)")
     received_at: Optional[str] = Field(None, description="Email received timestamp")
     body: Optional[str] = Field(None, description="Email body content")
     attachments: List[AttachmentPayload] = Field(default_factory=list, description="List of email attachments")

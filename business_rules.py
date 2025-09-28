@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import logging
 from datetime import datetime
 import re
+import random
 from business_config import BusinessConfig
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,8 @@ class CyberInsuranceValidator:
                 return "Rejected", [], f"Coverage amount ${coverage_amount:,} exceeds our maximum of ${max_limit:,} for {industry} industry"
         
         # High-risk industry additional requirements
-        if industry in cls.HIGH_RISK_INDUSTRIES:
+        high_risk_industries = BusinessConfig.AUTO_REJECTION_CRITERIA.get("high_risk_industries", [])
+        if industry in high_risk_industries:
             required_additional = ["revenue", "employee_count", "data_types"]
             missing_additional = [field for field in required_additional if not extracted_fields.get(field)]
             if missing_additional:
@@ -117,7 +119,6 @@ class CyberInsuranceValidator:
                 available = BusinessConfig.get_available_underwriters(level.split("_")[0])  # senior, standard, junior
                 if available:
                     # Simple round-robin assignment (in practice, this could be more sophisticated)
-                    import random
                     return random.choice(available)
         
         # Fallback to junior underwriters

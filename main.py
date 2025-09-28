@@ -77,9 +77,36 @@ async def email_intake(
     """
     Process incoming email with attachments and extract insurance data
     """
-    logger.info("Processing email intake", subject=request.subject, from_email=request.from_email)
+    # Extract sender email from either field
+    sender_email = request.sender_email or request.from_email or "Unknown sender"
+    
+    logger.info("Processing email intake", subject=request.subject, sender_email=sender_email)
     
     try:
+        # Check for duplicate submissions (same subject and sender within last hour)
+        from datetime import timedelta
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        
+        existing_submission = db.query(Submission).filter(
+            Submission.subject == (request.subject or "No subject"),
+            Submission.sender_email == sender_email,
+            Submission.created_at > one_hour_ago
+        ).first()
+        
+        if existing_submission:
+            logger.warning("Duplicate submission detected", 
+                         subject=request.subject, 
+                         sender_email=sender_email,
+                         existing_ref=existing_submission.submission_ref)
+            
+            # Return existing submission instead of creating new one
+            return EmailIntakeResponse(
+                submission_ref=str(existing_submission.submission_ref),
+                submission_id=existing_submission.submission_id,
+                status="duplicate",
+                message="Duplicate submission detected - returning existing submission"
+            )
+        
         # Generate unique submission reference
         submission_ref = str(uuid.uuid4())
         
@@ -98,7 +125,7 @@ async def email_intake(
         
         # Combine email body and attachment text with null safety
         combined_text = f"Email Subject: {request.subject or 'No subject'}\n"
-        combined_text += f"From: {request.from_email or 'Unknown sender'}\n"
+        combined_text += f"From: {sender_email}\n"
         combined_text += f"Email Body:\n{request.body or 'No body content'}\n\n"
         
         if attachment_text:
@@ -118,7 +145,7 @@ async def email_intake(
             submission_id=next_submission_id,
             submission_ref=submission_ref,
             subject=request.subject or "No subject",
-            sender_email=request.from_email or "Unknown sender",
+            sender_email=sender_email,
             body_text=request.body or "No body content",
             extracted_fields=extracted_data,
             task_status="pending"
@@ -131,7 +158,7 @@ async def email_intake(
         work_item = WorkItem(
             submission_id=submission.id,
             title=request.subject or "Email Submission",
-            description=f"Email from {request.from_email or 'Unknown sender'}",
+            description=f"Email from {sender_email}",
             status=WorkItemStatus.PENDING,
             priority=WorkItemPriority.MEDIUM,
             assigned_to=None  # Will be assigned later
