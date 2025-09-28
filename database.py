@@ -7,8 +7,13 @@ import enum
 
 from config import settings
 
-# Create database engine
-engine = create_engine(settings.database_url)
+# Create database engine for PostgreSQL
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    pool_recycle=300,
+    echo=False
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
