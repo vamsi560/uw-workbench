@@ -127,23 +127,6 @@ async def email_intake(
         
         # Broadcast new work item to all connected WebSocket clients
         await broadcast_new_workitem(submission)
-        # Also broadcast via SSE for Vercel compatibility
-        try:
-            await sse_broadcast(json.dumps({
-                "event": "new_workitem",
-                "data": {
-                    "id": submission.id,
-                    "submission_id": submission.submission_id,
-                    "submission_ref": str(submission.submission_ref),
-                    "subject": submission.subject or "No subject",
-                    "from_email": submission.sender_email or "Unknown sender",
-                    "created_at": submission.created_at.isoformat() + "Z" if submission.created_at else None,
-                    "status": submission.task_status or "pending",
-                    "extracted_fields": submission.extracted_fields or {}
-                }
-            }))
-        except Exception as _:
-            pass
         
         return EmailIntakeResponse(
             submission_ref=str(submission_ref),
@@ -350,35 +333,69 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
-# ===== SSE (Server-Sent Events) for real-time updates =====
-_sse_subscribers = set()
+# ===== Polling-based updates for Vercel compatibility =====
 
-async def _sse_event_stream():
-    queue: asyncio.Queue = asyncio.Queue()
-    _sse_subscribers.add(queue)
+@app.get("/api/workitems/poll")
+async def poll_workitems(
+    since: str = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    Poll for recent work items. Optimized for frontend polling instead of SSE.
+    
+    Args:
+        since: ISO timestamp to filter items created after this time
+        limit: Maximum number of items to return (default 50, max 100)
+    """
     try:
-        while True:
-            data = await queue.get()
-            # Each message must end with a blank line per SSE spec
-            yield f"data: {data}\n\n"
-    finally:
-        _sse_subscribers.discard(queue)
-
-
-async def sse_broadcast(json_str: str) -> None:
-    dead = []
-    for q in list(_sse_subscribers):
-        try:
-            q.put_nowait(json_str)
-        except Exception:
-            dead.append(q)
-    for q in dead:
-        _sse_subscribers.discard(q)
-
-
-@app.get("/sse/workitems")
-async def sse_workitems():
-    return StreamingResponse(_sse_event_stream(), media_type="text/event-stream")
+        # Limit max items to prevent large responses
+        limit = min(limit, 100)
+        
+        query = db.query(Submission).order_by(Submission.created_at.desc())
+        
+        # Filter by timestamp if provided
+        if since:
+            try:
+                from datetime import datetime
+                since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+                query = query.filter(Submission.created_at > since_dt)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid 'since' timestamp format. Use ISO format (e.g., 2025-09-28T10:00:00Z)"
+                )
+        
+        submissions = query.limit(limit).all()
+        
+        # Format response similar to SSE format for consistency
+        items = []
+        for submission in submissions:
+            items.append({
+                "id": submission.id,
+                "submission_id": submission.submission_id,
+                "submission_ref": str(submission.submission_ref),
+                "subject": submission.subject or "No subject",
+                "from_email": submission.sender_email or "Unknown sender",
+                "created_at": submission.created_at.isoformat() + "Z" if submission.created_at else None,
+                "status": submission.task_status or "pending",
+                "extracted_fields": submission.extracted_fields or {}
+            })
+        
+        return {
+            "items": items,
+            "count": len(items),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error polling work items", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error polling work items: {str(e)}"
+        )
 
 
 @app.websocket("/ws/workitems")
@@ -429,23 +446,6 @@ async def test_workitem(db: Session = Depends(get_db)):
         
         # Broadcast the test work item (WebSocket)
         await broadcast_new_workitem(test_submission)
-        # And via SSE
-        try:
-            await sse_broadcast(json.dumps({
-                "event": "new_workitem",
-                "data": {
-                    "id": test_submission.id,
-                    "submission_id": test_submission.submission_id,
-                    "submission_ref": str(test_submission.submission_ref),
-                    "subject": test_submission.subject or "No subject",
-                    "from_email": test_submission.sender_email or "Unknown sender",
-                    "created_at": test_submission.created_at.isoformat() + "Z" if test_submission.created_at else None,
-                    "status": test_submission.task_status or "pending",
-                    "extracted_fields": test_submission.extracted_fields or {}
-                }
-            }))
-        except Exception:
-            pass
         
         return {
             "message": "Test work item created and broadcasted",
