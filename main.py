@@ -137,23 +137,33 @@ async def email_intake(
             assigned_to=None  # Will be assigned later
         )
         
+        # Apply business rules and validation
+        from business_rules import CyberInsuranceValidator, WorkflowEngine
+        
+        # Run comprehensive validation
+        validation_status, missing_fields, rejection_reason = CyberInsuranceValidator.validate_submission(extracted_data or {})
+        
+        # Calculate risk priority
+        risk_priority = CyberInsuranceValidator.calculate_risk_priority(extracted_data or {})
+        
+        # Assign underwriter based on business rules
+        assigned_underwriter = None
+        if validation_status == "Complete":
+            assigned_underwriter = CyberInsuranceValidator.assign_underwriter(extracted_data or {})
+        
+        # Generate initial risk assessment
+        risk_categories = CyberInsuranceValidator.generate_risk_categories(extracted_data or {})
+        overall_risk_score = sum(risk_categories.values()) / len(risk_categories)
+        
         # Extract cyber insurance specific data from LLM results
         if extracted_data and isinstance(extracted_data, dict):
             work_item.industry = extracted_data.get('industry')
             work_item.policy_type = extracted_data.get('policy_type') or extracted_data.get('coverage_type')
             
-            # Try to parse coverage amount
-            coverage = extracted_data.get('coverage_amount') or extracted_data.get('policy_limit')
-            if coverage:
-                try:
-                    if isinstance(coverage, str):
-                        # Remove $ and commas, convert to float
-                        coverage_clean = coverage.replace('$', '').replace(',', '').strip()
-                        work_item.coverage_amount = float(coverage_clean)
-                    elif isinstance(coverage, (int, float)):
-                        work_item.coverage_amount = float(coverage)
-                except (ValueError, TypeError):
-                    logger.warning(f"Could not parse coverage amount: {coverage}")
+            # Use business rules parser for coverage amount
+            work_item.coverage_amount = CyberInsuranceValidator._parse_coverage_amount(
+                extracted_data.get('coverage_amount') or extracted_data.get('policy_limit') or ''
+            )
             
             # Set company size if available
             company_size = extracted_data.get('company_size')
@@ -173,17 +183,76 @@ async def email_intake(
                     }
                     work_item.company_size = size_mapping.get(company_size.lower())
         
+        # Apply validation results to work item
+        if validation_status == "Complete":
+            work_item.status = WorkItemStatus.PENDING
+        elif validation_status == "Incomplete":
+            work_item.status = WorkItemStatus.PENDING
+            work_item.description += f"\n\nMissing fields: {', '.join(missing_fields)}"
+        elif validation_status == "Rejected":
+            work_item.status = WorkItemStatus.REJECTED
+            work_item.description += f"\n\nRejection reason: {rejection_reason}"
+        
+        # Set priority based on risk calculation
+        try:
+            work_item.priority = WorkItemPriority(risk_priority)
+        except ValueError:
+            work_item.priority = WorkItemPriority.MEDIUM
+        
+        # Set assigned underwriter
+        work_item.assigned_to = assigned_underwriter
+        
+        # Set risk data
+        work_item.risk_score = overall_risk_score
+        work_item.risk_categories = risk_categories
+        
         db.add(work_item)
+        db.flush()  # Get ID before commit
+        
+        # Create initial risk assessment if we have risk data
+        if risk_categories and overall_risk_score > 0:
+            risk_assessment = RiskAssessment(
+                work_item_id=work_item.id,
+                overall_score=overall_risk_score,
+                risk_categories=risk_categories,
+                assessment_date=datetime.utcnow(),
+                assessed_by="System",
+                assessment_notes=f"Initial automated assessment based on submission data. Validation status: {validation_status}"
+            )
+            db.add(risk_assessment)
+        
+        # Create history entry for validation results
+        history_entry = WorkItemHistory(
+            work_item_id=work_item.id,
+            action="created",
+            changed_by="System",
+            timestamp=datetime.utcnow(),
+            details={
+                "validation_status": validation_status,
+                "missing_fields": missing_fields,
+                "rejection_reason": rejection_reason,
+                "risk_priority": risk_priority,
+                "assigned_underwriter": assigned_underwriter
+            }
+        )
+        db.add(history_entry)
+        
         db.commit()
         db.refresh(work_item)
         
         logger.info("Submission and work item created", 
                    submission_id=submission.submission_id, 
                    work_item_id=work_item.id,
-                   submission_ref=submission_ref)
+                   submission_ref=submission_ref,
+                   validation_status=validation_status,
+                   risk_priority=risk_priority)
         
-        # Broadcast new work item to all connected WebSocket clients
-        await broadcast_new_workitem(work_item, submission)
+        # Broadcast new work item to all connected WebSocket clients with enhanced data
+        await broadcast_new_workitem(work_item, submission, {
+            "validation_status": validation_status,
+            "risk_score": overall_risk_score,
+            "assigned_underwriter": assigned_underwriter
+        })
         
         return EmailIntakeResponse(
             submission_ref=str(submission_ref),
@@ -383,6 +452,192 @@ async def root():
         }
     }
 
+
+@app.put("/api/work-items/{work_item_id}/status")
+async def update_work_item_status(
+    work_item_id: int,
+    status_update: dict,
+    db: Session = Depends(get_db)
+):
+    """Update work item status with business rule validation"""
+    from business_rules import WorkflowEngine, MessageService
+    
+    try:
+        # Get the work item
+        work_item = db.query(WorkItem).filter(WorkItem.id == work_item_id).first()
+        if not work_item:
+            raise HTTPException(status_code=404, detail="Work item not found")
+        
+        current_status = work_item.status
+        new_status = status_update.get("status")
+        changed_by = status_update.get("changed_by", "System")
+        notes = status_update.get("notes", "")
+        
+        # Validate status transition using WorkflowEngine
+        is_valid, message = WorkflowEngine.validate_status_transition(current_status, new_status)
+        
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid status transition: {message}")
+        
+        # Update the work item
+        old_status = work_item.status
+        work_item.status = WorkItemStatus(new_status)
+        work_item.updated_at = datetime.utcnow()
+        
+        # Add history entry
+        history_entry = WorkItemHistory(
+            work_item_id=work_item.id,
+            action=f"status_changed_from_{old_status}_to_{new_status}",
+            changed_by=changed_by,
+            timestamp=datetime.utcnow(),
+            details={
+                "old_status": old_status,
+                "new_status": new_status,
+                "notes": notes
+            }
+        )
+        db.add(history_entry)
+        
+        # Handle special status transitions
+        if new_status == "assigned" and work_item.assigned_to:
+            # Send notification to underwriter
+            MessageService.send_assignment_notification(work_item.assigned_to, work_item)
+        elif new_status == "rejected":
+            # Send rejection notification to broker
+            submission = db.query(Submission).filter(Submission.submission_id == work_item.submission_id).first()
+            if submission:
+                MessageService.send_rejection_notification(submission.sender_email, work_item, notes)
+        
+        db.commit()
+        db.refresh(work_item)
+        
+        # Broadcast status update
+        await websocket_manager.broadcast_message({
+            "type": "work_item_status_update",
+            "data": {
+                "id": work_item.id,
+                "old_status": old_status,
+                "new_status": new_status,
+                "changed_by": changed_by,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        })
+        
+        return {
+            "message": "Status updated successfully",
+            "work_item_id": work_item.id,
+            "old_status": old_status,
+            "new_status": new_status
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error updating work item status", work_item_id=work_item_id, error=str(e))
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/work-items/{work_item_id}/risk-assessment")
+async def get_risk_assessment(work_item_id: int, db: Session = Depends(get_db)):
+    """Get risk assessment for a work item"""
+    try:
+        work_item = db.query(WorkItem).filter(WorkItem.id == work_item_id).first()
+        if not work_item:
+            raise HTTPException(status_code=404, detail="Work item not found")
+        
+        # Get latest risk assessment
+        risk_assessment = db.query(RiskAssessment).filter(
+            RiskAssessment.work_item_id == work_item_id
+        ).order_by(RiskAssessment.assessment_date.desc()).first()
+        
+        if not risk_assessment:
+            return {"message": "No risk assessment found", "work_item_id": work_item_id}
+        
+        return {
+            "work_item_id": work_item_id,
+            "assessment_id": risk_assessment.id,
+            "overall_score": risk_assessment.overall_score,
+            "risk_categories": risk_assessment.risk_categories,
+            "assessment_date": risk_assessment.assessment_date.isoformat(),
+            "assessed_by": risk_assessment.assessed_by,
+            "assessment_notes": risk_assessment.assessment_notes
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting risk assessment", work_item_id=work_item_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.post("/api/validate-submission")
+async def validate_submission_data(
+    validation_request: dict,
+    db: Session = Depends(get_db)
+):
+    """Validate submission data using business rules without creating work item"""
+    from business_rules import CyberInsuranceValidator
+    
+    try:
+        extracted_data = validation_request.get("extracted_data", {})
+        
+        # Run validation
+        validation_status, missing_fields, rejection_reason = CyberInsuranceValidator.validate_submission(extracted_data)
+        
+        # Calculate risk priority
+        risk_priority = CyberInsuranceValidator.calculate_risk_priority(extracted_data)
+        
+        # Generate risk categories
+        risk_categories = CyberInsuranceValidator.generate_risk_categories(extracted_data)
+        
+        # Assign underwriter if complete
+        assigned_underwriter = None
+        if validation_status == "Complete":
+            assigned_underwriter = CyberInsuranceValidator.assign_underwriter(extracted_data)
+        
+        return {
+            "validation_status": validation_status,
+            "missing_fields": missing_fields,
+            "rejection_reason": rejection_reason,
+            "risk_priority": risk_priority,
+            "risk_categories": risk_categories,
+            "assigned_underwriter": assigned_underwriter,
+            "overall_risk_score": sum(risk_categories.values()) / len(risk_categories) if risk_categories else 0
+        }
+        
+    except Exception as e:
+        logger.error("Error validating submission data", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+@app.get("/api/work-items/{work_item_id}/history")
+async def get_work_item_history(work_item_id: int, db: Session = Depends(get_db)):
+    """Get history for a work item"""
+    try:
+        work_item = db.query(WorkItem).filter(WorkItem.id == work_item_id).first()
+        if not work_item:
+            raise HTTPException(status_code=404, detail="Work item not found")
+        
+        history = db.query(WorkItemHistory).filter(
+            WorkItemHistory.work_item_id == work_item_id
+        ).order_by(WorkItemHistory.timestamp.desc()).all()
+        
+        return {
+            "work_item_id": work_item_id,
+            "history": [
+                {
+                    "id": h.id,
+                    "action": h.action,
+                    "changed_by": h.changed_by,
+                    "timestamp": h.timestamp.isoformat(),
+                    "details": h.details
+                } for h in history
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error getting work item history", work_item_id=work_item_id, error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @app.get("/health")
 async def health_check():
@@ -743,7 +998,7 @@ async def test_workitem(db: Session = Depends(get_db)):
         )
 
 
-async def broadcast_new_workitem(work_item: WorkItem, submission: Submission):
+async def broadcast_new_workitem(work_item: WorkItem, submission: Submission, business_data: dict = None):
     """Broadcast a new work item to all connected WebSocket clients"""
     try:
         # Parse risk categories if available
@@ -778,6 +1033,14 @@ async def broadcast_new_workitem(work_item: WorkItem, submission: Submission):
             "from_email": submission.sender_email or "Unknown sender",
             "extracted_fields": submission.extracted_fields or {}
         }
+        
+        # Add business validation data if provided
+        if business_data:
+            workitem_data.update({
+                "validation_status": business_data.get("validation_status"),
+                "business_risk_score": business_data.get("risk_score"),
+                "assigned_underwriter": business_data.get("assigned_underwriter")
+            })
         
         await websocket_manager.broadcast_workitem(workitem_data)
         logger.info(f"Broadcasted new work item: {work_item.id} (submission: {submission.submission_id})")
