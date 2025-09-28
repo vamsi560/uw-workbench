@@ -9,7 +9,7 @@ from datetime import datetime
 import uuid
 import json
 
-from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, create_tables
+from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, Underwriter, SubmissionMessage, create_tables
 from llm_service import llm_service
 from models import (
     EmailIntakePayload, EmailIntakeResponse, 
@@ -297,48 +297,7 @@ async def email_intake(
         )
 
 
-@app.get("/api/submissions/{submission_ref}", response_model=SubmissionResponse)
-async def get_submission(
-    submission_ref: str,
-    db: Session = Depends(get_db)
-):
-    """
-    Retrieve a submission by submission reference UUID
-    """
-    logger.info("Retrieving submission", submission_ref=submission_ref)
-    
-    try:
-        submission = db.query(Submission).filter(Submission.submission_ref == submission_ref).first()
-        
-        if not submission:
-            raise HTTPException(
-                status_code=404,
-                detail="Submission not found"
-            )
-        
-        logger.info("Submission retrieved successfully", submission_ref=submission_ref)
-        
-        return SubmissionResponse(
-            id=submission.id,
-            submission_id=submission.submission_id,
-            submission_ref=str(submission.submission_ref),
-            subject=submission.subject,
-            sender_email=submission.sender_email,
-            body_text=submission.body_text,
-            extracted_fields=submission.extracted_fields,
-            assigned_to=submission.assigned_to,
-            task_status=submission.task_status,
-            created_at=submission.created_at
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error retrieving submission", submission_ref=submission_ref, error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error retrieving submission: {str(e)}"
-        )
+
 
 
 @app.post("/api/submissions/confirm/{submission_ref}", response_model=SubmissionConfirmResponse)
@@ -564,107 +523,11 @@ async def update_work_item_status(
         db.rollback()
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/api/work-items/{work_item_id}/risk-assessment")
-async def get_risk_assessment(work_item_id: int, db: Session = Depends(get_db)):
-    """Get risk assessment for a work item"""
-    try:
-        work_item = db.query(WorkItem).filter(WorkItem.id == work_item_id).first()
-        if not work_item:
-            raise HTTPException(status_code=404, detail="Work item not found")
-        
-        # Get latest risk assessment
-        risk_assessment = db.query(RiskAssessment).filter(
-            RiskAssessment.work_item_id == work_item_id
-        ).order_by(RiskAssessment.assessment_date.desc()).first()
-        
-        if not risk_assessment:
-            return {"message": "No risk assessment found", "work_item_id": work_item_id}
-        
-        return {
-            "work_item_id": work_item_id,
-            "assessment_id": risk_assessment.id,
-            "overall_score": risk_assessment.overall_score,
-            "risk_categories": risk_assessment.risk_categories,
-            "assessment_date": risk_assessment.assessment_date.isoformat(),
-            "assessed_by": risk_assessment.assessed_by,
-            "assessment_notes": risk_assessment.assessment_notes
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error getting risk assessment", work_item_id=work_item_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/api/validate-submission")
-async def validate_submission_data(
-    validation_request: dict,
-    db: Session = Depends(get_db)
-):
-    """Validate submission data using business rules without creating work item"""
-    from business_rules import CyberInsuranceValidator
-    
-    try:
-        extracted_data = validation_request.get("extracted_data", {})
-        
-        # Run validation
-        validation_status, missing_fields, rejection_reason = CyberInsuranceValidator.validate_submission(extracted_data)
-        
-        # Calculate risk priority
-        risk_priority = CyberInsuranceValidator.calculate_risk_priority(extracted_data)
-        
-        # Generate risk categories
-        risk_categories = CyberInsuranceValidator.generate_risk_categories(extracted_data)
-        
-        # Assign underwriter if complete
-        assigned_underwriter = None
-        if validation_status == "Complete":
-            assigned_underwriter = CyberInsuranceValidator.assign_underwriter(extracted_data)
-        
-        return {
-            "validation_status": validation_status,
-            "missing_fields": missing_fields,
-            "rejection_reason": rejection_reason,
-            "risk_priority": risk_priority,
-            "risk_categories": risk_categories,
-            "assigned_underwriter": assigned_underwriter,
-            "overall_risk_score": sum(risk_categories.values()) / len(risk_categories) if risk_categories else 0
-        }
-        
-    except Exception as e:
-        logger.error("Error validating submission data", error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/api/work-items/{work_item_id}/history")
-async def get_work_item_history(work_item_id: int, db: Session = Depends(get_db)):
-    """Get history for a work item"""
-    try:
-        work_item = db.query(WorkItem).filter(WorkItem.id == work_item_id).first()
-        if not work_item:
-            raise HTTPException(status_code=404, detail="Work item not found")
-        
-        history = db.query(WorkItemHistory).filter(
-            WorkItemHistory.work_item_id == work_item_id
-        ).order_by(WorkItemHistory.timestamp.desc()).all()
-        
-        return {
-            "work_item_id": work_item_id,
-            "history": [
-                {
-                    "id": h.id,
-                    "action": h.action,
-                    "changed_by": h.changed_by,
-                    "timestamp": h.timestamp.isoformat(),
-                    "details": h.details
-                } for h in history
-            ]
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error getting work item history", work_item_id=work_item_id, error=str(e))
-        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+
 
 @app.get("/health")
 async def health_check():
@@ -682,10 +545,13 @@ async def poll_workitems(
     priority: str = None,
     status: str = None,
     assigned_to: str = None,
+    include_details: bool = False,
+    work_item_id: int = None,
     db: Session = Depends(get_db)
 ):
     """
-    Enhanced polling for work items with filtering support.
+    Enhanced polling for work items with filtering support and optional detailed data.
+    Now includes risk assessment and history data when include_details=true or work_item_id specified.
     
     Args:
         since: ISO timestamp to filter items created after this time
@@ -694,6 +560,8 @@ async def poll_workitems(
         priority: Filter by priority (Low, Moderate, Medium, High, Critical)
         status: Filter by status (Pending, In Review, Approved, Rejected)
         assigned_to: Filter by assigned underwriter
+        include_details: Include risk assessment and history data
+        work_item_id: Get details for specific work item (replaces separate endpoints)
     """
     try:
         # Limit max items to prevent large responses
@@ -747,6 +615,63 @@ async def poll_workitems(
         
         results = query.limit(limit).all()
         
+        # If specific work item requested, return detailed data
+        if work_item_id:
+            work_item_detail = db.query(WorkItem, Submission).join(
+                Submission, WorkItem.submission_id == Submission.id
+            ).filter(WorkItem.id == work_item_id).first()
+            
+            if not work_item_detail:
+                raise HTTPException(status_code=404, detail="Work item not found")
+            
+            work_item, submission = work_item_detail
+            
+            # Get risk assessment
+            risk_assessment = db.query(RiskAssessment).filter(
+                RiskAssessment.work_item_id == work_item_id
+            ).order_by(RiskAssessment.assessment_date.desc()).first()
+            
+            # Get history
+            history = db.query(WorkItemHistory).filter(
+                WorkItemHistory.work_item_id == work_item_id
+            ).order_by(WorkItemHistory.timestamp.desc()).limit(10).all()
+            
+            return {
+                "work_item": {
+                    "id": work_item.id,
+                    "submission_id": work_item.submission_id,
+                    "submission_ref": str(submission.submission_ref),
+                    "title": work_item.title or submission.subject,
+                    "description": work_item.description,
+                    "status": work_item.status.value if work_item.status else "Pending",
+                    "priority": work_item.priority.value if work_item.priority else "Medium",
+                    "assigned_to": work_item.assigned_to,
+                    "risk_score": work_item.risk_score,
+                    "risk_categories": work_item.risk_categories,
+                    "industry": work_item.industry,
+                    "policy_type": work_item.policy_type,
+                    "coverage_amount": work_item.coverage_amount,
+                    "created_at": work_item.created_at.isoformat() + "Z",
+                    "updated_at": work_item.updated_at.isoformat() + "Z"
+                },
+                "risk_assessment": {
+                    "overall_score": risk_assessment.overall_risk_score if risk_assessment else work_item.risk_score,
+                    "risk_categories": risk_assessment.risk_categories if risk_assessment else work_item.risk_categories,
+                    "assessed_by": risk_assessment.assessed_by if risk_assessment else "System",
+                    "assessment_date": risk_assessment.created_at.isoformat() + "Z" if risk_assessment else None
+                } if risk_assessment or work_item.risk_score else None,
+                "history": [
+                    {
+                        "id": h.id,
+                        "action": h.action.value if hasattr(h.action, 'value') else str(h.action),
+                        "performed_by": h.performed_by,
+                        "timestamp": h.timestamp.isoformat() + "Z",
+                        "details": h.details
+                    } for h in history
+                ],
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+
         # Format response with enhanced data structure
         items = []
         for work_item, submission in results:
@@ -787,6 +712,21 @@ async def poll_workitems(
                 has_urgent_comments=has_urgent_comments
             )
             
+            # Include detailed data if requested
+            if include_details:
+                # Get risk assessment for this item
+                risk_assessment = db.query(RiskAssessment).filter(
+                    RiskAssessment.work_item_id == work_item.id
+                ).order_by(RiskAssessment.assessment_date.desc()).first()
+                
+                # Add risk assessment data to item
+                if risk_assessment:
+                    item_data.__dict__['risk_assessment'] = {
+                        "overall_score": risk_assessment.overall_risk_score,
+                        "assessed_by": risk_assessment.assessed_by,
+                        "assessment_date": risk_assessment.created_at.isoformat() + "Z"
+                    }
+            
             items.append(item_data)
         
         return EnhancedPollingResponse(
@@ -805,133 +745,180 @@ async def poll_workitems(
         )
 
 
-@app.get("/api/workitems", response_model=WorkItemListResponse)
-async def get_work_items(
-    search: str = None,
-    priority: str = None,
-    status: str = None,
-    assigned_to: str = None,
-    industry: str = None,
-    page: int = 1,
-    limit: int = 50,
+
+
+
+# ===== Frontend Integration API Endpoints =====
+
+@app.put("/api/submissions/{submission_id}")
+async def update_submission(
+    submission_id: int,
+    updates: dict,
     db: Session = Depends(get_db)
 ):
-    """
-    Get work items with comprehensive filtering, search, and pagination.
-    This is the main endpoint for the frontend data table.
-    """
-    try:
-        # Validate pagination
-        page = max(1, page)
-        limit = min(max(1, limit), 100)
-        offset = (page - 1) * limit
-        
-        # Base query with submission data
-        query = db.query(WorkItem, Submission).join(
-            Submission, WorkItem.submission_id == Submission.id
-        )
-        
-        # Apply filters (same logic as polling endpoint)
-        if search:
-            search_filter = f"%{search}%"
-            query = query.filter(
-                or_(
-                    WorkItem.title.ilike(search_filter),
-                    WorkItem.description.ilike(search_filter),
-                    WorkItem.industry.ilike(search_filter),
-                    Submission.subject.ilike(search_filter),
-                    Submission.sender_email.ilike(search_filter)
-                )
-            )
-        
-        if priority:
-            try:
-                priority_enum = WorkItemPriorityEnum(priority)
-                query = query.filter(WorkItem.priority == priority_enum.value)
-            except ValueError:
-                pass
-        
-        if status:
-            try:
-                status_enum = WorkItemStatusEnum(status)
-                query = query.filter(WorkItem.status == status_enum.value)
-            except ValueError:
-                pass
-        
-        if assigned_to:
-            query = query.filter(WorkItem.assigned_to.ilike(f"%{assigned_to}%"))
-        
-        if industry:
-            query = query.filter(WorkItem.industry.ilike(f"%{industry}%"))
-        
-        # Get total count before pagination
-        total_count = query.count()
-        
-        # Apply pagination and ordering
-        results = query.order_by(WorkItem.created_at.desc()).offset(offset).limit(limit).all()
-        
-        # Format response
-        work_items = []
-        for work_item, submission in results:
-            # Count comments
-            comments_count = db.query(Comment).filter(Comment.work_item_id == work_item.id).count()
-            has_urgent_comments = db.query(Comment).filter(
-                Comment.work_item_id == work_item.id,
-                Comment.is_urgent == True
-            ).first() is not None
-            
-            # Parse risk categories
-            risk_categories = None
-            if work_item.risk_categories:
+    """Update submission fields (for inline editing) - Also updates related work item"""
+    
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    
+    # Update allowed fields
+    allowed_fields = ['subject', 'sender_email', 'assigned_to', 'task_status']
+    
+    for field, value in updates.items():
+        if field in allowed_fields and hasattr(submission, field):
+            setattr(submission, field, value)
+    
+    # Also update related work item if exists
+    work_item = db.query(WorkItem).filter(WorkItem.submission_id == submission.id).first()
+    if work_item:
+        if 'assigned_to' in updates:
+            work_item.assigned_to = updates['assigned_to']
+        if 'subject' in updates:
+            work_item.title = updates['subject']
+        work_item.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(submission)
+    
+    return {
+        "message": f"Submission {submission_id} updated successfully",
+        "updated_fields": list(updates.keys())
+    }
+
+
+@app.put("/api/workitems/{workitem_id}")
+async def update_workitem(
+    workitem_id: int,
+    updates: dict,
+    db: Session = Depends(get_db)
+):
+    """Update work item fields (for inline editing)"""
+    
+    work_item = db.query(WorkItem).filter(WorkItem.id == workitem_id).first()
+    if not work_item:
+        raise HTTPException(status_code=404, detail="Work item not found")
+    
+    # Update allowed fields
+    allowed_fields = ['title', 'description', 'status', 'priority', 'assigned_to', 'industry', 'policy_type', 'coverage_amount']
+    
+    for field, value in updates.items():
+        if field in allowed_fields and hasattr(work_item, field):
+            # Handle enum fields
+            if field == 'status' and value:
                 try:
-                    risk_categories = RiskCategories(**work_item.risk_categories)
-                except Exception:
-                    pass
-            
-            work_item_summary = WorkItemSummary(
-                id=work_item.id,
-                submission_id=work_item.submission_id,
-                submission_ref=str(submission.submission_ref),
-                title=work_item.title or submission.subject or "No title",
-                description=work_item.description,
-                status=WorkItemStatusEnum(work_item.status.value) if work_item.status else WorkItemStatusEnum.PENDING,
-                priority=WorkItemPriorityEnum(work_item.priority.value) if work_item.priority else WorkItemPriorityEnum.MEDIUM,
-                assigned_to=work_item.assigned_to,
-                risk_score=work_item.risk_score,
-                risk_categories=risk_categories,
-                industry=work_item.industry,
-                company_size=CompanySizeEnum(work_item.company_size.value) if work_item.company_size else None,
-                policy_type=work_item.policy_type,
-                coverage_amount=work_item.coverage_amount,
-                last_risk_assessment=work_item.last_risk_assessment,
-                created_at=work_item.created_at,
-                updated_at=work_item.updated_at,
-                comments_count=comments_count,
-                has_urgent_comments=has_urgent_comments
-            )
-            
-            work_items.append(work_item_summary)
-        
-        # Calculate pagination info
-        total_pages = (total_count + limit - 1) // limit
-        
-        return WorkItemListResponse(
-            work_items=work_items,
-            total=total_count,
-            pagination={
-                "page": page,
-                "limit": limit,
-                "total_pages": total_pages,
-                "total_items": total_count
+                    setattr(work_item, field, WorkItemStatus(value))
+                except ValueError:
+                    continue
+            elif field == 'priority' and value:
+                try:
+                    setattr(work_item, field, WorkItemPriority(value))
+                except ValueError:
+                    continue
+            else:
+                setattr(work_item, field, value)
+    
+    work_item.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(work_item)
+    
+    return {
+        "message": f"Work item {workitem_id} updated successfully",
+        "updated_fields": list(updates.keys())
+    }
+
+
+@app.post("/api/workitems/{workitem_id}/assign")
+async def assign_workitem(
+    workitem_id: int,
+    assignment_data: dict,
+    db: Session = Depends(get_db)
+):
+    """Assign work item to underwriter and create submission"""
+    
+    underwriter = assignment_data.get('underwriter')
+    if not underwriter:
+        raise HTTPException(status_code=400, detail="Underwriter is required")
+    
+    # Get the work item
+    work_item = db.query(WorkItem).filter(WorkItem.id == workitem_id).first()
+    if not work_item:
+        raise HTTPException(status_code=404, detail="Work item not found")
+    
+    # Get related submission
+    submission = db.query(Submission).filter(Submission.id == work_item.submission_id).first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Related submission not found")
+    
+    # Update assignment
+    work_item.assigned_to = underwriter
+    work_item.status = WorkItemStatus.IN_REVIEW
+    work_item.updated_at = datetime.utcnow()
+    
+    submission.assigned_to = underwriter
+    submission.task_status = "assigned"
+    
+    # Create assignment notification message
+    message = SubmissionMessage(
+        submission_id=submission.id,
+        message_type="assignment_notification",
+        sender="system",
+        recipient=underwriter,
+        subject=f"New Assignment - Work Item #{workitem_id}",
+        message=f"You have been assigned work item #{workitem_id} for {submission.subject}",
+        is_read=False
+    )
+    
+    db.add(message)
+    db.commit()
+    
+    return {
+        "message": f"Work item {workitem_id} assigned to {underwriter}",
+        "submission_id": submission.submission_id,
+        "assigned_to": underwriter,
+        "status": "Assigned"
+    }
+
+
+@app.get("/api/underwriters")
+async def list_underwriters(db: Session = Depends(get_db)):
+    """Get list of available underwriters"""
+    
+    underwriters = db.query(Underwriter).filter(Underwriter.is_active == True).all()
+    
+    return {
+        "underwriters": [
+            {
+                "id": uw.id,
+                "name": uw.name,
+                "email": uw.email,
+                "specializations": uw.specializations or [],
+                "max_coverage_limit": uw.max_coverage_limit,
+                "workload": uw.current_workload or 0
             }
-        )
-        
-    except Exception as e:
-        logger.error("Error fetching work items", error=str(e))
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error fetching work items: {str(e)}"
-        )
+            for uw in underwriters
+        ]
+    }
+
+
+@app.get("/api/refresh-data")
+async def refresh_data(db: Session = Depends(get_db)):
+    """Endpoint for frontend refresh functionality"""
+    
+    # Get fresh counts and summary data
+    total_submissions = db.query(Submission).count()
+    pending_workitems = db.query(WorkItem).filter(WorkItem.status.in_([WorkItemStatus.PENDING, WorkItemStatus.IN_REVIEW])).count()
+    new_workitems = db.query(WorkItem).filter(WorkItem.status == WorkItemStatus.PENDING).count()
+    
+    return {
+        "timestamp": datetime.utcnow().isoformat(),
+        "summary": {
+            "total_submissions": total_submissions,
+            "pending_submissions": pending_workitems,
+            "new_submissions": new_workitems
+        },
+        "message": "Data refreshed successfully"
+    }
 
 
 @app.websocket("/ws/workitems")
@@ -951,78 +938,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket_manager.disconnect(websocket)
 
 
-@app.post("/api/test/workitem")
-async def test_workitem(db: Session = Depends(get_db)):
-    """Test endpoint to create a fake work item and broadcast it"""
-    try:
-        # Create a test submission
-        submission_ref = str(uuid.uuid4())
-        last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
-        next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
-        
-        test_submission = Submission(
-            submission_id=next_submission_id,
-            submission_ref=submission_ref,
-            subject="Test Cyber Insurance Policy Submission",
-            sender_email="test@techcorp.com",
-            body_text="This is a test work item created for testing the enhanced workbench features.",
-            extracted_fields={
-                "insured_name": "TechCorp Inc",
-                "policy_type": "Cyber Liability",
-                "coverage_amount": "5000000",
-                "industry": "Technology",
-                "company_size": "Medium",
-                "effective_date": "2025-01-01",
-                "broker": "Cyber Insurance Specialists"
-            },
-            task_status="pending"
-        )
-        
-        db.add(test_submission)
-        db.commit()
-        db.refresh(test_submission)
-        
-        # Create corresponding work item
-        test_work_item = WorkItem(
-            submission_id=test_submission.id,
-            title="Cyber Insurance Application - TechCorp Inc",
-            description="Technology company seeking comprehensive cyber liability coverage",
-            status=WorkItemStatus.PENDING,
-            priority=WorkItemPriority.HIGH,
-            industry="Technology",
-            company_size=CompanySize.MEDIUM,
-            policy_type="Cyber Liability",
-            coverage_amount=5000000.0,
-            risk_score=75.5,
-            risk_categories={
-                "technical": 80.0,
-                "operational": 65.0,
-                "financial": 70.0,
-                "compliance": 85.0
-            }
-        )
-        
-        db.add(test_work_item)
-        db.commit()
-        db.refresh(test_work_item)
-        
-        # Broadcast the test work item (WebSocket)
-        await broadcast_new_workitem(test_work_item, test_submission)
-        
-        return {
-            "message": "Test work item created and broadcasted",
-            "submission_id": test_submission.submission_id,
-            "work_item_id": test_work_item.id,
-            "submission_ref": str(submission_ref),
-            "websocket_connections": websocket_manager.get_connection_count()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error creating test work item: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error creating test work item: {str(e)}"
-        )
+
 
 
 async def broadcast_new_workitem(work_item: WorkItem, submission: Submission, business_data: dict = None):

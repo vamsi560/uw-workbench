@@ -164,6 +164,37 @@ class User(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Underwriter(Base):
+    __tablename__ = "underwriters"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    specializations = Column(JSON)  # Array of insurance specializations
+    max_coverage_limit = Column(Float, nullable=True)  # Maximum coverage they can underwrite
+    current_workload = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SubmissionMessage(Base):
+    __tablename__ = "submission_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    message_type = Column(String(100), nullable=False)  # assignment_notification, status_update, etc.
+    sender = Column(String(255), nullable=False)
+    recipient = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=True)
+    message = Column(Text, nullable=False)
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    submission = relationship("Submission")
+
+
 class WorkItemHistory(Base):
     __tablename__ = "work_item_history"
     
