@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime
+from enum import Enum
 import uuid
 
 
@@ -52,3 +53,277 @@ class SubmissionConfirmResponse(BaseModel):
 class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
+
+
+# Enums for API responses
+class WorkItemStatusEnum(str, Enum):
+    PENDING = "Pending"
+    IN_REVIEW = "In Review"
+    APPROVED = "Approved"
+    REJECTED = "Rejected"
+
+
+class WorkItemPriorityEnum(str, Enum):
+    LOW = "Low"
+    MODERATE = "Moderate"
+    MEDIUM = "Medium"
+    HIGH = "High"
+    CRITICAL = "Critical"
+
+
+class CompanySizeEnum(str, Enum):
+    SMALL = "Small"
+    MEDIUM = "Medium"
+    LARGE = "Large"
+    ENTERPRISE = "Enterprise"
+
+
+class UserRoleEnum(str, Enum):
+    UNDERWRITER = "Underwriter"
+    SENIOR_UNDERWRITER = "Senior_Underwriter"
+    MANAGER = "Manager"
+    RISK_ANALYST = "Risk_Analyst"
+
+
+# Risk Assessment Models
+class RiskCategories(BaseModel):
+    technical: float = Field(..., ge=0, le=100, description="Technical risk score (0-100)")
+    operational: float = Field(..., ge=0, le=100, description="Operational risk score (0-100)")
+    financial: float = Field(..., ge=0, le=100, description="Financial risk score (0-100)")
+    compliance: float = Field(..., ge=0, le=100, description="Compliance risk score (0-100)")
+
+
+class RiskFactor(BaseModel):
+    category: str = Field(..., description="Risk category")
+    factor: str = Field(..., description="Risk factor description")
+    impact: str = Field(..., description="Impact level (Low, Medium, High)")
+    score: float = Field(..., ge=0, le=100, description="Risk factor score")
+
+
+class RiskRecommendation(BaseModel):
+    category: str = Field(..., description="Risk category")
+    recommendation: str = Field(..., description="Recommendation text")
+    priority: str = Field(..., description="Priority level (Low, Medium, High)")
+
+
+class RiskAssessmentDetail(BaseModel):
+    id: int
+    work_item_id: int
+    overall_risk_score: float = Field(..., ge=0, le=100)
+    risk_categories: RiskCategories
+    risk_factors: List[RiskFactor] = Field(default_factory=list)
+    recommendations: List[RiskRecommendation] = Field(default_factory=list)
+    assessed_by: str
+    assessed_by_name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class RiskAssessmentRequest(BaseModel):
+    overall_risk_score: float = Field(..., ge=0, le=100)
+    risk_categories: RiskCategories
+    risk_factors: List[RiskFactor] = Field(default_factory=list)
+    recommendations: List[RiskRecommendation] = Field(default_factory=list)
+
+
+# Comment Models
+class CommentDetail(BaseModel):
+    id: int
+    work_item_id: int
+    author_id: str
+    author_name: str
+    content: str
+    is_urgent: bool = False
+    mentions: List[str] = Field(default_factory=list)
+    parent_comment_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+    replies: List['CommentDetail'] = Field(default_factory=list)
+
+
+class CommentRequest(BaseModel):
+    content: str = Field(..., min_length=1, max_length=5000)
+    is_urgent: bool = False
+    mentions: List[str] = Field(default_factory=list)
+    parent_comment_id: Optional[int] = None
+
+
+# User Models
+class UserDetail(BaseModel):
+    id: str
+    name: str
+    email: str
+    role: UserRoleEnum
+    specializations: List[str] = Field(default_factory=list)
+    max_capacity: int = 25
+    current_workload: int = 0
+    is_available: bool = True
+    avg_processing_time_days: Optional[float] = None
+    success_rate: Optional[float] = None
+    last_assignment: Optional[datetime] = None
+
+
+class UserSearchResult(BaseModel):
+    id: str
+    name: str
+    email: str
+
+
+# Work Item Models
+class WorkItemSummary(BaseModel):
+    id: int
+    submission_id: int
+    submission_ref: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: WorkItemStatusEnum
+    priority: WorkItemPriorityEnum
+    assigned_to: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_categories: Optional[RiskCategories] = None
+    industry: Optional[str] = None
+    company_size: Optional[CompanySizeEnum] = None
+    policy_type: Optional[str] = None
+    coverage_amount: Optional[float] = None
+    last_risk_assessment: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    comments_count: int = 0
+    has_urgent_comments: bool = False
+
+
+class WorkItemDetail(BaseModel):
+    id: int
+    submission_id: int
+    submission_ref: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: WorkItemStatusEnum
+    priority: WorkItemPriorityEnum
+    assigned_to: Optional[str] = None
+    risk_score: Optional[float] = None
+    risk_categories: Optional[RiskCategories] = None
+    industry: Optional[str] = None
+    company_size: Optional[CompanySizeEnum] = None
+    policy_type: Optional[str] = None
+    coverage_amount: Optional[float] = None
+    last_risk_assessment: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+    
+    # Related data
+    subject: Optional[str] = None  # From submission
+    sender_email: Optional[str] = None  # From submission
+    body_text: Optional[str] = None  # From submission
+    extracted_fields: Optional[Dict[str, Any]] = None  # From submission
+
+
+class WorkItemUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[WorkItemStatusEnum] = None
+    priority: Optional[WorkItemPriorityEnum] = None
+    assigned_to: Optional[str] = None
+    industry: Optional[str] = None
+    company_size: Optional[CompanySizeEnum] = None
+    policy_type: Optional[str] = None
+    coverage_amount: Optional[float] = None
+
+
+# History Models
+class HistoryRecord(BaseModel):
+    id: int
+    action: str
+    performed_by: str
+    performed_by_name: str
+    details: Optional[Dict[str, Any]] = None
+    description: str
+    timestamp: datetime
+
+
+# Response Models
+class PaginationInfo(BaseModel):
+    page: int
+    limit: int
+    total_pages: int
+    total_items: int
+
+
+class WorkItemListResponse(BaseModel):
+    work_items: List[WorkItemSummary]
+    total: int
+    pagination: PaginationInfo
+
+
+class WorkItemDetailResponse(BaseModel):
+    work_item: WorkItemDetail
+    risk_assessment: Optional[RiskAssessmentDetail] = None
+    comments: List[CommentDetail] = Field(default_factory=list)
+    history: List[HistoryRecord] = Field(default_factory=list)
+
+
+# Enhanced Polling Response (maintains compatibility)
+class EnhancedPollingResponse(BaseModel):
+    items: List[WorkItemSummary]
+    count: int
+    timestamp: str
+
+
+# Assignment Models
+class UnderwriterRecommendation(BaseModel):
+    underwriter: UserDetail
+    score: int = Field(..., ge=0, le=100)
+    reasons: List[str]
+
+
+class AssignmentRecommendationsResponse(BaseModel):
+    recommendations: List[UnderwriterRecommendation]
+
+
+class AssignmentRequest(BaseModel):
+    assigned_to: str = Field(..., description="Email or ID of underwriter to assign")
+    reason: Optional[str] = None
+
+
+# Analytics Models
+class IndustryRiskData(BaseModel):
+    name: str
+    average_risk_score: float
+    application_count: int
+
+
+class CoverageTypeData(BaseModel):
+    name: str
+    count: int
+    percentage: float
+
+
+class StatusDistributionData(BaseModel):
+    status: str
+    count: int
+
+
+class RiskDistributionData(BaseModel):
+    range: str
+    count: int
+    percentage: float
+
+
+class CyberRiskByIndustryResponse(BaseModel):
+    industries: List[IndustryRiskData]
+
+
+class PolicyCoverageDistributionResponse(BaseModel):
+    coverage_types: List[CoverageTypeData]
+
+
+class WorkItemStatusDistributionResponse(BaseModel):
+    status_distribution: List[StatusDistributionData]
+
+
+class RiskScoreDistributionResponse(BaseModel):
+    risk_distribution: List[RiskDistributionData]
+
+
+# Fix forward reference
+CommentDetail.model_rebuild()

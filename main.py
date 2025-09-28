@@ -4,16 +4,20 @@ from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocke
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from datetime import datetime
 import uuid
 import json
 
-from database import get_db, Submission, WorkItem, create_tables
+from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, create_tables
 from llm_service import llm_service
 from models import (
     EmailIntakePayload, EmailIntakeResponse, 
     SubmissionResponse, SubmissionConfirmRequest, 
-    SubmissionConfirmResponse, ErrorResponse
+    SubmissionConfirmResponse, ErrorResponse,
+    WorkItemSummary, WorkItemDetail, WorkItemListResponse,
+    EnhancedPollingResponse, RiskCategories,
+    WorkItemStatusEnum, WorkItemPriorityEnum, CompanySizeEnum
 )
 from config import settings
 from logging_config import configure_logging, get_logger
@@ -123,10 +127,63 @@ async def email_intake(
         db.commit()
         db.refresh(submission)
         
-        logger.info("Submission created", submission_id=submission.submission_id, submission_ref=submission_ref)
+        # Create corresponding work item with enhanced fields
+        work_item = WorkItem(
+            submission_id=submission.id,
+            title=request.subject or "Email Submission",
+            description=f"Email from {request.from_email or 'Unknown sender'}",
+            status=WorkItemStatus.PENDING,
+            priority=WorkItemPriority.MEDIUM,
+            assigned_to=None  # Will be assigned later
+        )
+        
+        # Extract cyber insurance specific data from LLM results
+        if extracted_data and isinstance(extracted_data, dict):
+            work_item.industry = extracted_data.get('industry')
+            work_item.policy_type = extracted_data.get('policy_type') or extracted_data.get('coverage_type')
+            
+            # Try to parse coverage amount
+            coverage = extracted_data.get('coverage_amount') or extracted_data.get('policy_limit')
+            if coverage:
+                try:
+                    if isinstance(coverage, str):
+                        # Remove $ and commas, convert to float
+                        coverage_clean = coverage.replace('$', '').replace(',', '').strip()
+                        work_item.coverage_amount = float(coverage_clean)
+                    elif isinstance(coverage, (int, float)):
+                        work_item.coverage_amount = float(coverage)
+                except (ValueError, TypeError):
+                    logger.warning(f"Could not parse coverage amount: {coverage}")
+            
+            # Set company size if available
+            company_size = extracted_data.get('company_size')
+            if company_size:
+                try:
+                    work_item.company_size = CompanySize(company_size)
+                except ValueError:
+                    # Try mapping common variations
+                    size_mapping = {
+                        'small': CompanySize.SMALL,
+                        'medium': CompanySize.MEDIUM,
+                        'large': CompanySize.LARGE,
+                        'enterprise': CompanySize.ENTERPRISE,
+                        'startup': CompanySize.SMALL,
+                        'sme': CompanySize.MEDIUM,
+                        'multinational': CompanySize.ENTERPRISE
+                    }
+                    work_item.company_size = size_mapping.get(company_size.lower())
+        
+        db.add(work_item)
+        db.commit()
+        db.refresh(work_item)
+        
+        logger.info("Submission and work item created", 
+                   submission_id=submission.submission_id, 
+                   work_item_id=work_item.id,
+                   submission_ref=submission_ref)
         
         # Broadcast new work item to all connected WebSocket clients
-        await broadcast_new_workitem(submission)
+        await broadcast_new_workitem(work_item, submission)
         
         return EmailIntakeResponse(
             submission_ref=str(submission_ref),
@@ -335,57 +392,126 @@ async def health_check():
 
 # ===== Polling-based updates for Vercel compatibility =====
 
-@app.get("/api/workitems/poll")
+@app.get("/api/workitems/poll", response_model=EnhancedPollingResponse)
 async def poll_workitems(
     since: str = None,
     limit: int = 50,
+    search: str = None,
+    priority: str = None,
+    status: str = None,
+    assigned_to: str = None,
     db: Session = Depends(get_db)
 ):
     """
-    Poll for recent work items. Optimized for frontend polling instead of SSE.
+    Enhanced polling for work items with filtering support.
     
     Args:
         since: ISO timestamp to filter items created after this time
         limit: Maximum number of items to return (default 50, max 100)
+        search: Search term to filter across title, description, industry
+        priority: Filter by priority (Low, Moderate, Medium, High, Critical)
+        status: Filter by status (Pending, In Review, Approved, Rejected)
+        assigned_to: Filter by assigned underwriter
     """
     try:
         # Limit max items to prevent large responses
         limit = min(limit, 100)
         
-        query = db.query(Submission).order_by(Submission.created_at.desc())
+        # Query work items with their related submission data
+        query = db.query(WorkItem, Submission).join(
+            Submission, WorkItem.submission_id == Submission.id
+        ).order_by(WorkItem.created_at.desc())
         
         # Filter by timestamp if provided
         if since:
             try:
                 since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
-                query = query.filter(Submission.created_at > since_dt)
+                query = query.filter(WorkItem.created_at > since_dt)
             except ValueError:
                 raise HTTPException(
                     status_code=400,
                     detail="Invalid 'since' timestamp format. Use ISO format (e.g., 2025-09-28T10:00:00Z)"
                 )
         
-        submissions = query.limit(limit).all()
+        # Apply filters
+        if search:
+            search_filter = f"%{search}%"
+            query = query.filter(
+                or_(
+                    WorkItem.title.ilike(search_filter),
+                    WorkItem.description.ilike(search_filter),
+                    WorkItem.industry.ilike(search_filter),
+                    Submission.subject.ilike(search_filter),
+                    Submission.sender_email.ilike(search_filter)
+                )
+            )
         
-        # Format response similar to SSE format for consistency
+        if priority:
+            try:
+                priority_enum = WorkItemPriorityEnum(priority)
+                query = query.filter(WorkItem.priority == priority_enum.value)
+            except ValueError:
+                pass  # Invalid priority, ignore filter
+        
+        if status:
+            try:
+                status_enum = WorkItemStatusEnum(status)
+                query = query.filter(WorkItem.status == status_enum.value)
+            except ValueError:
+                pass  # Invalid status, ignore filter
+        
+        if assigned_to:
+            query = query.filter(WorkItem.assigned_to.ilike(f"%{assigned_to}%"))
+        
+        results = query.limit(limit).all()
+        
+        # Format response with enhanced data structure
         items = []
-        for submission in submissions:
-            items.append({
-                "id": submission.id,
-                "submission_id": submission.submission_id,
-                "submission_ref": str(submission.submission_ref),
-                "subject": submission.subject or "No subject",
-                "from_email": submission.sender_email or "Unknown sender",
-                "created_at": submission.created_at.isoformat() + "Z" if submission.created_at else None,
-                "status": submission.task_status or "pending",
-                "extracted_fields": submission.extracted_fields or {}
-            })
+        for work_item, submission in results:
+            # Count comments for this work item
+            comments_count = db.query(Comment).filter(Comment.work_item_id == work_item.id).count()
+            has_urgent_comments = db.query(Comment).filter(
+                Comment.work_item_id == work_item.id,
+                Comment.is_urgent == True
+            ).first() is not None
+            
+            # Parse risk categories if available
+            risk_categories = None
+            if work_item.risk_categories:
+                try:
+                    risk_categories = RiskCategories(**work_item.risk_categories)
+                except Exception:
+                    risk_categories = None
+            
+            item_data = WorkItemSummary(
+                id=work_item.id,
+                submission_id=work_item.submission_id,
+                submission_ref=str(submission.submission_ref),
+                title=work_item.title or submission.subject or "No title",
+                description=work_item.description,
+                status=WorkItemStatusEnum(work_item.status.value) if work_item.status else WorkItemStatusEnum.PENDING,
+                priority=WorkItemPriorityEnum(work_item.priority.value) if work_item.priority else WorkItemPriorityEnum.MEDIUM,
+                assigned_to=work_item.assigned_to,
+                risk_score=work_item.risk_score,
+                risk_categories=risk_categories,
+                industry=work_item.industry,
+                company_size=CompanySizeEnum(work_item.company_size.value) if work_item.company_size else None,
+                policy_type=work_item.policy_type,
+                coverage_amount=work_item.coverage_amount,
+                last_risk_assessment=work_item.last_risk_assessment,
+                created_at=work_item.created_at,
+                updated_at=work_item.updated_at,
+                comments_count=comments_count,
+                has_urgent_comments=has_urgent_comments
+            )
+            
+            items.append(item_data)
         
-        return {
-            "items": items,
-            "count": len(items),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
+        return EnhancedPollingResponse(
+            items=items,
+            count=len(items),
+            timestamp=datetime.utcnow().isoformat() + "Z"
+        )
         
     except HTTPException:
         raise
@@ -394,6 +520,135 @@ async def poll_workitems(
         raise HTTPException(
             status_code=500,
             detail=f"Error polling work items: {str(e)}"
+        )
+
+
+@app.get("/api/workitems", response_model=WorkItemListResponse)
+async def get_work_items(
+    search: str = None,
+    priority: str = None,
+    status: str = None,
+    assigned_to: str = None,
+    industry: str = None,
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    Get work items with comprehensive filtering, search, and pagination.
+    This is the main endpoint for the frontend data table.
+    """
+    try:
+        # Validate pagination
+        page = max(1, page)
+        limit = min(max(1, limit), 100)
+        offset = (page - 1) * limit
+        
+        # Base query with submission data
+        query = db.query(WorkItem, Submission).join(
+            Submission, WorkItem.submission_id == Submission.id
+        )
+        
+        # Apply filters (same logic as polling endpoint)
+        if search:
+            search_filter = f"%{search}%"
+            query = query.filter(
+                or_(
+                    WorkItem.title.ilike(search_filter),
+                    WorkItem.description.ilike(search_filter),
+                    WorkItem.industry.ilike(search_filter),
+                    Submission.subject.ilike(search_filter),
+                    Submission.sender_email.ilike(search_filter)
+                )
+            )
+        
+        if priority:
+            try:
+                priority_enum = WorkItemPriorityEnum(priority)
+                query = query.filter(WorkItem.priority == priority_enum.value)
+            except ValueError:
+                pass
+        
+        if status:
+            try:
+                status_enum = WorkItemStatusEnum(status)
+                query = query.filter(WorkItem.status == status_enum.value)
+            except ValueError:
+                pass
+        
+        if assigned_to:
+            query = query.filter(WorkItem.assigned_to.ilike(f"%{assigned_to}%"))
+        
+        if industry:
+            query = query.filter(WorkItem.industry.ilike(f"%{industry}%"))
+        
+        # Get total count before pagination
+        total_count = query.count()
+        
+        # Apply pagination and ordering
+        results = query.order_by(WorkItem.created_at.desc()).offset(offset).limit(limit).all()
+        
+        # Format response
+        work_items = []
+        for work_item, submission in results:
+            # Count comments
+            comments_count = db.query(Comment).filter(Comment.work_item_id == work_item.id).count()
+            has_urgent_comments = db.query(Comment).filter(
+                Comment.work_item_id == work_item.id,
+                Comment.is_urgent == True
+            ).first() is not None
+            
+            # Parse risk categories
+            risk_categories = None
+            if work_item.risk_categories:
+                try:
+                    risk_categories = RiskCategories(**work_item.risk_categories)
+                except Exception:
+                    pass
+            
+            work_item_summary = WorkItemSummary(
+                id=work_item.id,
+                submission_id=work_item.submission_id,
+                submission_ref=str(submission.submission_ref),
+                title=work_item.title or submission.subject or "No title",
+                description=work_item.description,
+                status=WorkItemStatusEnum(work_item.status.value) if work_item.status else WorkItemStatusEnum.PENDING,
+                priority=WorkItemPriorityEnum(work_item.priority.value) if work_item.priority else WorkItemPriorityEnum.MEDIUM,
+                assigned_to=work_item.assigned_to,
+                risk_score=work_item.risk_score,
+                risk_categories=risk_categories,
+                industry=work_item.industry,
+                company_size=CompanySizeEnum(work_item.company_size.value) if work_item.company_size else None,
+                policy_type=work_item.policy_type,
+                coverage_amount=work_item.coverage_amount,
+                last_risk_assessment=work_item.last_risk_assessment,
+                created_at=work_item.created_at,
+                updated_at=work_item.updated_at,
+                comments_count=comments_count,
+                has_urgent_comments=has_urgent_comments
+            )
+            
+            work_items.append(work_item_summary)
+        
+        # Calculate pagination info
+        total_pages = (total_count + limit - 1) // limit
+        
+        return WorkItemListResponse(
+            work_items=work_items,
+            total=total_count,
+            pagination={
+                "page": page,
+                "limit": limit,
+                "total_pages": total_pages,
+                "total_items": total_count
+            }
+        )
+        
+    except Exception as e:
+        logger.error("Error fetching work items", error=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error fetching work items: {str(e)}"
         )
 
 
@@ -426,15 +681,17 @@ async def test_workitem(db: Session = Depends(get_db)):
         test_submission = Submission(
             submission_id=next_submission_id,
             submission_ref=submission_ref,
-            subject="Test Insurance Policy Submission",
-            sender_email="test@example.com",
-            body_text="This is a test work item created for WebSocket testing.",
+            subject="Test Cyber Insurance Policy Submission",
+            sender_email="test@techcorp.com",
+            body_text="This is a test work item created for testing the enhanced workbench features.",
             extracted_fields={
-                "insured_name": "Test Company Inc",
-                "policy_type": "General Liability",
-                "coverage_amount": "$1,000,000",
-                "effective_date": "2024-01-01",
-                "broker": "Test Insurance Agency"
+                "insured_name": "TechCorp Inc",
+                "policy_type": "Cyber Liability",
+                "coverage_amount": "5000000",
+                "industry": "Technology",
+                "company_size": "Medium",
+                "effective_date": "2025-01-01",
+                "broker": "Cyber Insurance Specialists"
             },
             task_status="pending"
         )
@@ -443,12 +700,37 @@ async def test_workitem(db: Session = Depends(get_db)):
         db.commit()
         db.refresh(test_submission)
         
+        # Create corresponding work item
+        test_work_item = WorkItem(
+            submission_id=test_submission.id,
+            title="Cyber Insurance Application - TechCorp Inc",
+            description="Technology company seeking comprehensive cyber liability coverage",
+            status=WorkItemStatus.PENDING,
+            priority=WorkItemPriority.HIGH,
+            industry="Technology",
+            company_size=CompanySize.MEDIUM,
+            policy_type="Cyber Liability",
+            coverage_amount=5000000.0,
+            risk_score=75.5,
+            risk_categories={
+                "technical": 80.0,
+                "operational": 65.0,
+                "financial": 70.0,
+                "compliance": 85.0
+            }
+        )
+        
+        db.add(test_work_item)
+        db.commit()
+        db.refresh(test_work_item)
+        
         # Broadcast the test work item (WebSocket)
-        await broadcast_new_workitem(test_submission)
+        await broadcast_new_workitem(test_work_item, test_submission)
         
         return {
             "message": "Test work item created and broadcasted",
             "submission_id": test_submission.submission_id,
+            "work_item_id": test_work_item.id,
             "submission_ref": str(submission_ref),
             "websocket_connections": websocket_manager.get_connection_count()
         }
@@ -461,22 +743,44 @@ async def test_workitem(db: Session = Depends(get_db)):
         )
 
 
-async def broadcast_new_workitem(submission: Submission):
+async def broadcast_new_workitem(work_item: WorkItem, submission: Submission):
     """Broadcast a new work item to all connected WebSocket clients"""
     try:
+        # Parse risk categories if available
+        risk_categories = None
+        if work_item.risk_categories:
+            try:
+                risk_categories = work_item.risk_categories
+            except Exception:
+                pass
+        
         workitem_data = {
-            "id": submission.id,
-            "submission_id": submission.submission_id,
+            "id": work_item.id,
+            "submission_id": work_item.submission_id,
             "submission_ref": str(submission.submission_ref),
+            "title": work_item.title or submission.subject or "No title",
+            "description": work_item.description,
+            "status": work_item.status.value if work_item.status else "Pending",
+            "priority": work_item.priority.value if work_item.priority else "Medium",
+            "assigned_to": work_item.assigned_to,
+            "risk_score": work_item.risk_score,
+            "risk_categories": risk_categories,
+            "industry": work_item.industry,
+            "company_size": work_item.company_size.value if work_item.company_size else None,
+            "policy_type": work_item.policy_type,
+            "coverage_amount": work_item.coverage_amount,
+            "created_at": work_item.created_at.isoformat() + "Z" if work_item.created_at else None,
+            "updated_at": work_item.updated_at.isoformat() + "Z" if work_item.updated_at else None,
+            "comments_count": 0,
+            "has_urgent_comments": False,
+            # Include submission data for backward compatibility
             "subject": submission.subject or "No subject",
             "from_email": submission.sender_email or "Unknown sender",
-            "created_at": submission.created_at.isoformat() + "Z" if submission.created_at else None,
-            "status": submission.task_status or "pending",
             "extracted_fields": submission.extracted_fields or {}
         }
         
         await websocket_manager.broadcast_workitem(workitem_data)
-        logger.info(f"Broadcasted new work item: {submission.submission_id}")
+        logger.info(f"Broadcasted new work item: {work_item.id} (submission: {submission.submission_id})")
         
     except Exception as e:
         logger.error(f"Error broadcasting work item: {str(e)}")
