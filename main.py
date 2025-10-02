@@ -1,3 +1,49 @@
+from pydantic import BaseModel
+# Duplicate-free polling endpoint for submissions
+class SubmissionOut(BaseModel):
+    id: int
+    subject: str
+    from_email: str | None = None
+    created_at: datetime
+    status: str
+
+@app.get("/api/workitems", response_model=List[SubmissionOut])
+def get_workitems(
+    since_id: int = None,
+    since: datetime = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Submission)
+
+    if since_id is not None:
+        query = query.filter(Submission.id > since_id)
+    elif since is not None:
+        query = query.filter(Submission.created_at > since)
+    else:
+        # No filters, return 20 most recent
+        query = query.order_by(Submission.created_at.desc()).limit(20)
+
+    # Always order by created_at ASC for output
+    results = query.order_by(Submission.created_at.asc()).all()
+
+    # Remove duplicates by id (shouldn't be needed if id is PK, but for safety)
+    seen = set()
+    unique_submissions = []
+    for sub in results:
+        if sub.id not in seen:
+            seen.add(sub.id)
+            unique_submissions.append(sub)
+
+    return [
+        SubmissionOut(
+            id=sub.id,
+            subject=sub.subject,
+            from_email=getattr(sub, "from_email", None),
+            created_at=sub.created_at,
+            status=sub.status
+        )
+        for sub in unique_submissions
+    ]
 import logging
 from typing import List
 from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
