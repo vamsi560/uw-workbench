@@ -82,6 +82,8 @@ class Submission(Base):
     extracted_fields = Column(JSON)  # JSONB equivalent
     assigned_to = Column(Text)  # underwriter email/name
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.NEW, index=True)
+    # Relationships
+    work_items = relationship("WorkItem", back_populates="submission", cascade="all, delete-orphan")
 # Submission status history/audit trail
 class SubmissionHistory(Base):
     __tablename__ = "submission_history"
