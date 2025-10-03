@@ -96,9 +96,6 @@ class SubmissionHistory(Base):
     # Relationships
     submission = relationship("Submission")
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationships
-    work_items = relationship("WorkItem", back_populates="submission")
 
 
 class WorkItem(Base):
