@@ -1,3 +1,30 @@
+
+import logging
+from typing import List
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from datetime import datetime
+import uuid
+import json
+from pydantic import BaseModel
+from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, Underwriter, SubmissionMessage, create_tables, SubmissionStatus, SubmissionHistory
+from llm_service import llm_service
+from models import (
+    EmailIntakePayload, EmailIntakeResponse, 
+    SubmissionResponse, SubmissionConfirmRequest, 
+    SubmissionConfirmResponse, ErrorResponse,
+    WorkItemSummary, WorkItemDetail, WorkItemListResponse,
+    EnhancedPollingResponse, RiskCategories,
+    WorkItemStatusEnum, WorkItemPriorityEnum, CompanySizeEnum
+)
+from config import settings
+from logging_config import configure_logging, get_logger
+from websocket_manager import websocket_manager
+import asyncio
+
 # Pydantic model for audit trail response
 class SubmissionHistoryOut(BaseModel):
     id: int
@@ -8,23 +35,6 @@ class SubmissionHistoryOut(BaseModel):
     reason: str | None = None
     timestamp: datetime
 
-# Endpoint to fetch audit trail for a submission
-@app.get("/api/submissions/{submission_id}/history", response_model=List[SubmissionHistoryOut])
-async def get_submission_history(submission_id: int, db: Session = Depends(get_db)):
-    history = db.query(SubmissionHistory).filter(SubmissionHistory.submission_id == submission_id).order_by(SubmissionHistory.timestamp.asc()).all()
-    return [
-        SubmissionHistoryOut(
-            id=h.id,
-            submission_id=h.submission_id,
-            old_status=h.old_status.value if hasattr(h.old_status, 'value') else str(h.old_status),
-            new_status=h.new_status.value if hasattr(h.new_status, 'value') else str(h.new_status),
-            changed_by=h.changed_by,
-            reason=h.reason,
-            timestamp=h.timestamp
-        )
-        for h in history
-    ]
-from database import SubmissionStatus, SubmissionHistory
 # Pydantic model for status update request
 class SubmissionStatusUpdateRequest(BaseModel):
     new_status: str
@@ -43,6 +53,31 @@ ALLOWED_STATUS_TRANSITIONS = {
     SubmissionStatus.WITHDRAWN.value: [],
     SubmissionStatus.COMPLETED.value: [],
 }
+
+# Duplicate-free polling endpoint for submissions
+class SubmissionOut(BaseModel):
+    id: int
+    subject: str
+    from_email: str | None = None
+    created_at: datetime
+    status: str
+
+# Endpoint to fetch audit trail for a submission
+@app.get("/api/submissions/{submission_id}/history", response_model=List[SubmissionHistoryOut])
+async def get_submission_history(submission_id: int, db: Session = Depends(get_db)):
+    history = db.query(SubmissionHistory).filter(SubmissionHistory.submission_id == submission_id).order_by(SubmissionHistory.timestamp.asc()).all()
+    return [
+        SubmissionHistoryOut(
+            id=h.id,
+            submission_id=h.submission_id,
+            old_status=h.old_status.value if hasattr(h.old_status, 'value') else str(h.old_status),
+            new_status=h.new_status.value if hasattr(h.new_status, 'value') else str(h.new_status),
+            changed_by=h.changed_by,
+            reason=h.reason,
+            timestamp=h.timestamp
+        )
+        for h in history
+    ]
 
 # Endpoint to update submission status with validation and audit logging
 @app.put("/api/submissions/{submission_id}/status")
@@ -90,14 +125,6 @@ async def update_submission_status(
         "audit_id": audit.id,
         "timestamp": audit.timestamp.isoformat() + "Z"
     }
-from pydantic import BaseModel
-# Duplicate-free polling endpoint for submissions
-class SubmissionOut(BaseModel):
-    id: int
-    subject: str
-    from_email: str | None = None
-    created_at: datetime
-    status: str
 
 @app.get("/api/workitems", response_model=List[SubmissionOut])
 def get_workitems(
