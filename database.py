@@ -1,3 +1,13 @@
+
+import enum
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, JSON, ForeignKey, UUID as SQLAlchemyUUID, Float, Boolean, Enum
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
+from datetime import datetime
+import uuid
+
+from config import settings
+
 # Real-world submission status lifecycle
 class SubmissionStatus(enum.Enum):
     NEW = "New"
@@ -9,15 +19,6 @@ class SubmissionStatus(enum.Enum):
     DECLINED = "Declined"
     WITHDRAWN = "Withdrawn"
     COMPLETED = "Completed"
-
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, JSON, ForeignKey, UUID as SQLAlchemyUUID, Float, Boolean, Enum
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime
-import uuid
-import enum
-
-from config import settings
 
 # Create database engine for PostgreSQL
 engine = create_engine(
