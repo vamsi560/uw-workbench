@@ -25,6 +25,64 @@ from logging_config import configure_logging, get_logger
 from websocket_manager import websocket_manager
 import asyncio
 
+
+# --- Imports and app creation (move to top) ---
+import logging
+from typing import List
+from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from datetime import datetime
+import uuid
+import json
+from pydantic import BaseModel
+from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, Underwriter, SubmissionMessage, create_tables, SubmissionStatus, SubmissionHistory
+from llm_service import llm_service
+from models import (
+    EmailIntakePayload, EmailIntakeResponse, 
+    SubmissionResponse, SubmissionConfirmRequest, 
+    SubmissionConfirmResponse, ErrorResponse,
+    WorkItemSummary, WorkItemDetail, WorkItemListResponse,
+    EnhancedPollingResponse, RiskCategories,
+    WorkItemStatusEnum, WorkItemPriorityEnum, CompanySizeEnum
+)
+from config import settings
+from logging_config import configure_logging, get_logger
+from websocket_manager import websocket_manager
+import asyncio
+
+# Configure logging first
+configure_logging()
+logger = get_logger(__name__)
+
+# Use minimal file parser for Vercel deployment
+try:
+    from file_parsers_minimal import parse_attachments
+    logger.info("Using minimal file parser for Vercel deployment")
+except ImportError:
+    from file_parsers import parse_attachments
+    logger.info("Using full file parser")
+
+# Create FastAPI app
+app = FastAPI(
+    title="Underwriting Workbench API",
+    description="Backend API for insurance submission processing",
+    version="1.0.0"
+)
+
+# Configure CORS for Vercel deployment
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins.split(","),
+    allow_credentials=settings.cors_credentials,
+    allow_methods=["*"] if settings.cors_methods == "*" else settings.cors_methods.split(","),
+    allow_headers=["*"] if settings.cors_headers == "*" else settings.cors_headers.split(","),
+)
+
+# --- End app creation ---
+
 # Pydantic model for audit trail response
 class SubmissionHistoryOut(BaseModel):
     id: int
