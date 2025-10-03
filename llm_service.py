@@ -35,10 +35,10 @@ class LLMService:
             # Return default structure if LLM fails
             return self._get_default_response()
     
-    def _create_extraction_prompt(self, text: str) -> str:
-        """Create the prompt for data extraction"""
-        return f"""
-You are an expert cyber insurance underwriter analyzing an insurance submission. 
+        def _create_extraction_prompt(self, text: str) -> str:
+                """Create the prompt for data extraction"""
+                return f"""
+You are an expert cyber insurance underwriter analyzing an insurance submission.
 Extract the following information from the text and return ONLY a valid JSON object.
 
 Text to analyze:
@@ -46,50 +46,57 @@ Text to analyze:
 
 Extract these fields for cyber insurance submission:
 {{
-    "company_name": "Name of the company requesting insurance",
-    "insured_name": "Primary contact name or insured party name",
-    "contact_email": "Contact email address",
-    "contact_name": "Primary contact person's name",
-    "contact_title": "Primary contact's job title",
-    "industry": "Industry sector (healthcare, technology, financial_services, etc.)",
-    "company_size": "Company size (small, medium, large, enterprise)",
-    "employee_count": "Number of employees",
-    "annual_revenue": "Annual revenue amount",
-    "coverage_amount": "Requested coverage amount",
-    "policy_type": "Type of cyber insurance policy (use: Cyber Liability, Privacy Liability, Data Breach Response, Technology E&O, Cyber Security, First Party Cyber, or Third Party Cyber)",
-    "deductible": "Policy deductible amount",
-    "effective_date": "Policy effective date",
-    "expiry_date": "Policy expiry date",
-    "data_types": "Types of data handled (PII, PHI, payment data, etc.)",
-    "security_measures": "Security measures in place",
-    "compliance_certifications": "Compliance certifications (SOC2, HIPAA, ISO27001, etc.)",
-    "previous_incidents": "Previous security incidents or breaches",
-    "previous_breach": "Has there been a previous breach (yes/no)",
-    "business_type": "Type of business (SaaS, manufacturing, consulting, etc.)",
-    "cloud_usage": "Does the company use cloud services (yes/no)",
-    "remote_workforce": "Percentage of remote workforce",
-    "years_in_operation": "Years the company has been in operation",
-    "current_coverage": "Current cyber insurance coverage amount if any"
+        "company_name": "Name of the company requesting insurance",
+        "named_insured": "Full legal name of the named insured (if different from company_name)",
+        "insured_name": "Primary contact name or insured party name",
+        "address": "Mailing address of the insured (street, city, state, zip, country)",
+        "contact_email": "Contact email address",
+        "contact_name": "Primary contact person's name",
+        "contact_title": "Primary contact's job title",
+        "industry": "Industry sector (healthcare, technology, financial_services, etc.)",
+        "company_size": "Company size (small, medium, large, enterprise)",
+        "employee_count": "Number of employees",
+        "annual_revenue": "Annual revenue amount",
+        "coverage_amount": "Requested coverage amount",
+        "policy_type": "Type of cyber insurance policy (use: Cyber Liability, Privacy Liability, Data Breach Response, Technology E&O, Cyber Security, First Party Cyber, or Third Party Cyber)",
+        "policy_number": "Policy number (if renewal or endorsement)",
+        "deductible": "Policy deductible amount",
+        "effective_date": "Policy effective date",
+        "expiry_date": "Policy expiry date",
+        "data_types": "Types of data handled (PII, PHI, payment data, etc.)",
+        "security_measures": "Security measures in place",
+        "compliance_certifications": "Compliance certifications (SOC2, HIPAA, ISO27001, etc.)",
+        "previous_incidents": "Previous security incidents or breaches",
+        "previous_breach": "Has there been a previous breach (yes/no)",
+        "business_type": "Type of business (SaaS, manufacturing, consulting, etc.)",
+        "cloud_usage": "Does the company use cloud services (yes/no)",
+        "remote_workforce": "Percentage of remote workforce",
+        "years_in_operation": "Years the company has been in operation",
+        "current_coverage": "Current cyber insurance coverage amount if any",
+        "underwriter": "Name or email of the underwriter (if mentioned)",
+        "broker": "Name or email of the broker (if mentioned)"
 }}
 
 CRITICAL INSTRUCTIONS:
 - Extract company name carefully - look for "Company Name:", organization names, or sender company
+- For named_insured, prefer explicit mentions, otherwise use company_name
+- For address, extract full mailing address if available
 - For contact_email: Use the "From:" email address from the email header
 - For dates: Use YYYY-MM-DD format when possible
 - For amounts: Extract FULL numeric values (convert millions to numbers):
-  * "$30 million" → "30000000"
-  * "$45 million" → "45000000" 
-  * "$15 million" → "15000000"
-  * "$5 million" → "5000000"
-  * "$5M" → "5000000"
-  * "$500,000" → "500000"
-  * Remove all $, commas, and convert text to numbers
-  * ALWAYS multiply by 1,000,000 when you see "million"
+    * "$30 million" → "30000000"
+    * "$45 million" → "45000000"
+    * "$15 million" → "15000000"
+    * "$5 million" → "5000000"
+    * "$5M" → "5000000"
+    * "$500,000" → "500000"
+    * Remove all $, commas, and convert text to numbers
+    * ALWAYS multiply by 1,000,000 when you see "million"
 - For coverage_amount: Look for "coverage", "limit", "coverage limit", or "insurance amount"
 - For annual_revenue: Look for "revenue", "annual revenue", "sales", or "income"
 - For policy_type: If not explicitly stated, use "Cyber Liability" as default for cyber insurance requests
 - For industry: Use lowercase (healthcare, technology, financial_services, manufacturing, etc.)
-- For company_size: Use lowercase (small, medium, large, enterprise) 
+- For company_size: Use lowercase (small, medium, large, enterprise)
 - If information is not found, use "Not specified"
 - Return ONLY the JSON object, no additional text
 - Ensure all field names match exactly as specified above

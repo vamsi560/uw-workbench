@@ -1,3 +1,95 @@
+# Pydantic model for audit trail response
+class SubmissionHistoryOut(BaseModel):
+    id: int
+    submission_id: int
+    old_status: str
+    new_status: str
+    changed_by: str
+    reason: str | None = None
+    timestamp: datetime
+
+# Endpoint to fetch audit trail for a submission
+@app.get("/api/submissions/{submission_id}/history", response_model=List[SubmissionHistoryOut])
+async def get_submission_history(submission_id: int, db: Session = Depends(get_db)):
+    history = db.query(SubmissionHistory).filter(SubmissionHistory.submission_id == submission_id).order_by(SubmissionHistory.timestamp.asc()).all()
+    return [
+        SubmissionHistoryOut(
+            id=h.id,
+            submission_id=h.submission_id,
+            old_status=h.old_status.value if hasattr(h.old_status, 'value') else str(h.old_status),
+            new_status=h.new_status.value if hasattr(h.new_status, 'value') else str(h.new_status),
+            changed_by=h.changed_by,
+            reason=h.reason,
+            timestamp=h.timestamp
+        )
+        for h in history
+    ]
+from database import SubmissionStatus, SubmissionHistory
+# Pydantic model for status update request
+class SubmissionStatusUpdateRequest(BaseModel):
+    new_status: str
+    changed_by: str
+    reason: str | None = None
+
+# Allowed status transitions (real-world underwriting)
+ALLOWED_STATUS_TRANSITIONS = {
+    SubmissionStatus.NEW.value: [SubmissionStatus.INTAKE.value, SubmissionStatus.WITHDRAWN.value],
+    SubmissionStatus.INTAKE.value: [SubmissionStatus.IN_REVIEW.value, SubmissionStatus.WITHDRAWN.value],
+    SubmissionStatus.IN_REVIEW.value: [SubmissionStatus.ASSIGNED.value, SubmissionStatus.QUOTED.value, SubmissionStatus.DECLINED.value, SubmissionStatus.WITHDRAWN.value],
+    SubmissionStatus.ASSIGNED.value: [SubmissionStatus.QUOTED.value, SubmissionStatus.DECLINED.value, SubmissionStatus.WITHDRAWN.value],
+    SubmissionStatus.QUOTED.value: [SubmissionStatus.BOUND.value, SubmissionStatus.DECLINED.value, SubmissionStatus.WITHDRAWN.value],
+    SubmissionStatus.BOUND.value: [SubmissionStatus.COMPLETED.value],
+    SubmissionStatus.DECLINED.value: [],
+    SubmissionStatus.WITHDRAWN.value: [],
+    SubmissionStatus.COMPLETED.value: [],
+}
+
+# Endpoint to update submission status with validation and audit logging
+@app.put("/api/submissions/{submission_id}/status")
+async def update_submission_status(
+    submission_id: int,
+    req: SubmissionStatusUpdateRequest,
+    db: Session = Depends(get_db)
+):
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    old_status = submission.status.value if hasattr(submission.status, 'value') else str(submission.status)
+    new_status = req.new_status
+
+    # Validate transition
+    allowed = ALLOWED_STATUS_TRANSITIONS.get(old_status, [])
+    if new_status not in allowed:
+        raise HTTPException(status_code=400, detail=f"Invalid status transition from {old_status} to {new_status}")
+
+    # Update status
+    submission.status = SubmissionStatus(new_status)
+    db.add(submission)
+
+    # Audit log
+    audit = SubmissionHistory(
+        submission_id=submission.id,
+        old_status=SubmissionStatus(old_status),
+        new_status=SubmissionStatus(new_status),
+        changed_by=req.changed_by,
+        reason=req.reason,
+        timestamp=datetime.utcnow()
+    )
+    db.add(audit)
+    db.commit()
+    db.refresh(submission)
+    db.refresh(audit)
+
+    return {
+        "submission_id": submission.id,
+        "old_status": old_status,
+        "new_status": new_status,
+        "changed_by": req.changed_by,
+        "reason": req.reason,
+        "audit_id": audit.id,
+        "timestamp": audit.timestamp.isoformat() + "Z"
+    }
 from pydantic import BaseModel
 # Duplicate-free polling endpoint for submissions
 class SubmissionOut(BaseModel):
@@ -92,7 +184,7 @@ app = FastAPI(
 # Configure CORS for Vercel deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.cors_origins == "*" else settings.cors_origins.split(","),
+    allow_origins=settings.cors_origins.split(","),
     allow_credentials=settings.cors_credentials,
     allow_methods=["*"] if settings.cors_methods == "*" else settings.cors_methods.split(","),
     allow_headers=["*"] if settings.cors_headers == "*" else settings.cors_headers.split(","),

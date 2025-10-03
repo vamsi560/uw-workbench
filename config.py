@@ -17,7 +17,8 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     
     # CORS Settings for Vercel
-    cors_origins: str = "*"
+    # For production, set to comma-separated list of allowed origins
+    cors_origins: str = "https://uw-workbench-portal.vercel.app,https://uw-workbench-jade.vercel.app"
     cors_credentials: bool = True
     cors_methods: str = "*"
     cors_headers: str = "*"

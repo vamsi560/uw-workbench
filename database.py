@@ -1,3 +1,15 @@
+# Real-world submission status lifecycle
+class SubmissionStatus(enum.Enum):
+    NEW = "New"
+    INTAKE = "Intake"
+    IN_REVIEW = "In Review"
+    ASSIGNED = "Assigned"
+    QUOTED = "Quoted"
+    BOUND = "Bound"
+    DECLINED = "Declined"
+    WITHDRAWN = "Withdrawn"
+    COMPLETED = "Completed"
+
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, JSON, ForeignKey, UUID as SQLAlchemyUUID, Float, Boolean, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
@@ -68,7 +80,20 @@ class Submission(Base):
     body_text = Column(Text)
     extracted_fields = Column(JSON)  # JSONB equivalent
     assigned_to = Column(Text)  # underwriter email/name
-    task_status = Column(Text, default="pending")  # pending, in_progress, completed
+    status = Column(Enum(SubmissionStatus), default=SubmissionStatus.NEW, index=True)
+# Submission status history/audit trail
+class SubmissionHistory(Base):
+    __tablename__ = "submission_history"
+    id = Column(Integer, primary_key=True, index=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    old_status = Column(Enum(SubmissionStatus), nullable=False)
+    new_status = Column(Enum(SubmissionStatus), nullable=False)
+    changed_by = Column(String(255), nullable=False)
+    reason = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+    # Relationships
+    submission = relationship("Submission")
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
