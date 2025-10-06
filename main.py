@@ -184,6 +184,24 @@ async def update_submission_status(
         "timestamp": audit.timestamp.isoformat() + "Z"
     }
 
+# Generate a concise summary for a submission (used by Summarize button)
+@app.post("/api/submissions/{submission_id}/summarize")
+async def summarize_submission(submission_id: int, db: Session = Depends(get_db)):
+    submission = db.query(Submission).filter(Submission.id == submission_id).first()
+    if not submission:
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    # Compose text from submission fields
+    subject = getattr(submission, "subject", None)
+    body_text = getattr(submission, "body_text", None)
+    extracted_fields = getattr(submission, "extracted_fields", None)
+
+    summary = llm_service.summarize_submission(subject, body_text, extracted_fields)
+    return {
+        "submission_id": submission_id,
+        "summary": summary
+    }
+
 @app.get("/api/workitems", response_model=List[SubmissionOut])
 def get_workitems(
     since_id: int = None,

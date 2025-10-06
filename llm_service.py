@@ -171,6 +171,75 @@ CRITICAL INSTRUCTIONS:
             "business_type": "Not specified"
         }
 
+    def summarize_submission(self, subject: Optional[str], body_text: Optional[str], extracted_fields: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create a concise underwriting-oriented summary for a submission.
+
+        Returns a dict with keys: summary, key_points, risk_flags.
+        """
+        try:
+            extracted_json = json.dumps(extracted_fields or {}, ensure_ascii=False)
+            subject_text = subject or ""
+            body = body_text or ""
+            prompt = f"""
+You are an expert cyber insurance underwriter. Summarize the submission succinctly for triage.
+
+Subject: {subject_text}
+
+Extracted Fields JSON:
+{extracted_json}
+
+Email/Notes:
+{body}
+
+Return ONLY valid JSON with the following structure:
+{{
+  "summary": "1-2 sentences overall context",
+  "key_points": ["3-6 short bullets with concrete facts"],
+  "risk_flags": ["0-5 bullets highlighting potential underwriting risks if any"]
+}}
+"""
+
+            if not self.google_client:
+                key_points = []
+                if extracted_fields:
+                    for k in [
+                        "company_name", "industry", "coverage_amount", "policy_type", "effective_date"
+                    ]:
+                        v = extracted_fields.get(k)
+                        if v and isinstance(v, str) and v != "Not specified":
+                            key_points.append(f"{k.replace('_',' ').title()}: {v}")
+                summary = subject_text or "Submission summary not available"
+                risk_flags = []
+                return {"summary": summary, "key_points": key_points[:6], "risk_flags": risk_flags}
+
+            generation_config = genai.types.GenerationConfig(
+                max_output_tokens=min(getattr(settings, "max_tokens", 512), 768),
+                temperature=0.2,
+            )
+            response = self.google_client.generate_content(prompt, generation_config=generation_config)
+            content = (response.text or "").strip()
+            content = content.replace("```json", "").replace("```", "").strip()
+            data = json.loads(content)
+
+            if not isinstance(data, dict):
+                raise ValueError("LLM summarize response not a JSON object")
+            for key in ["summary", "key_points", "risk_flags"]:
+                if key not in data:
+                    data[key] = [] if key != "summary" else ""
+            if not isinstance(data.get("key_points"), list):
+                data["key_points"] = [str(data.get("key_points"))]
+            if not isinstance(data.get("risk_flags"), list):
+                data["risk_flags"] = [str(data.get("risk_flags"))]
+            data["summary"] = str(data.get("summary", ""))
+            return data
+        except Exception as e:
+            logger.error("Error generating submission summary", exc_info=e)
+            return {
+                "summary": subject or "Submission",
+                "key_points": [],
+                "risk_flags": []
+            }
+
 
 # Global instance
 llm_service = LLMService()
