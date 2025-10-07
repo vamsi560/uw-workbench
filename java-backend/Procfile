@@ -1,0 +1,1 @@
+web: java -jar target/uw-workbench-backend-*.jar --server.port=$PORT

@@ -1,0 +1,20 @@
+# LLM Microservice Requirements
+# Core FastAPI and dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# Google Gemini AI
+google-generativeai>=0.3.0
+
+# Database (if needed for caching)
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+
+# HTTP client for inter-service communication
+httpx>=0.25.0
+requests>=2.31.0
+
+# Utilities
+python-multipart>=0.0.6
