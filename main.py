@@ -319,8 +319,9 @@ async def email_intake(
         combined_text += f"From: {str(sender_email)}\n"
         combined_text += f"Email Body:\n{str(request.body) or 'No body content'}\n\n"
         
-        if attachment_text:
-            combined_text += f"Attachment Content:\n{str(attachment_text)}"
+        if attachment_text is not None:
+            combined_text += f"Attachment Content:\n{attachment_text}" if isinstance(attachment_text, str) else f"Attachment Content:\n{str(attachment_text)}"
+
         
         logger.info("Extracting structured data with LLM")
         
