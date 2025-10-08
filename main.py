@@ -620,7 +620,25 @@ async def logic_apps_email_intake(
         db.commit()
         db.refresh(submission)
         
-        # Create corresponding work item (simplified version)
+        # Apply business rules and validation (same as regular email intake)
+        from business_rules import CyberInsuranceValidator, WorkflowEngine
+        
+        # Run comprehensive validation
+        validation_status, missing_fields, rejection_reason = CyberInsuranceValidator.validate_submission(extracted_data or {})
+        
+        # Calculate risk priority
+        risk_priority = CyberInsuranceValidator.calculate_risk_priority(extracted_data or {})
+        
+        # Assign underwriter based on business rules
+        assigned_underwriter = None
+        if validation_status == "Complete":
+            assigned_underwriter = CyberInsuranceValidator.assign_underwriter(extracted_data or {})
+        
+        # Generate initial risk assessment
+        risk_categories = CyberInsuranceValidator.generate_risk_categories(extracted_data or {})
+        overall_risk_score = sum(risk_categories.values()) / len(risk_categories)
+        
+        # Create work item with business rule results
         work_item = WorkItem(
             submission_id=submission.id,
             title=request.subject,
@@ -628,7 +646,89 @@ async def logic_apps_email_intake(
             status=WorkItemStatus.PENDING,
             priority=WorkItemPriority.MEDIUM
         )
+        
+        # Extract cyber insurance specific data from LLM results
+        if extracted_data and isinstance(extracted_data, dict):
+            work_item.industry = extracted_data.get('industry')
+            work_item.policy_type = extracted_data.get('policy_type') or extracted_data.get('coverage_type')
+            
+            # Use business rules parser for coverage amount
+            work_item.coverage_amount = CyberInsuranceValidator._parse_coverage_amount(
+                extracted_data.get('coverage_amount') or extracted_data.get('policy_limit') or ''
+            )
+            
+            # Set company size if available
+            company_size = extracted_data.get('company_size')
+            if company_size:
+                try:
+                    work_item.company_size = CompanySize(company_size)
+                except ValueError:
+                    # Try mapping common variations
+                    size_mapping = {
+                        'small': CompanySize.SMALL,
+                        'medium': CompanySize.MEDIUM,
+                        'large': CompanySize.LARGE,
+                        'enterprise': CompanySize.ENTERPRISE,
+                        'startup': CompanySize.SMALL,
+                        'sme': CompanySize.MEDIUM,
+                        'multinational': CompanySize.ENTERPRISE
+                    }
+                    work_item.company_size = size_mapping.get(company_size.lower())
+        
+        # Apply validation results to work item
+        if validation_status == "Complete":
+            work_item.status = WorkItemStatus.PENDING
+        elif validation_status == "Incomplete":
+            work_item.status = WorkItemStatus.PENDING
+            work_item.description += f"\n\nMissing fields: {', '.join(missing_fields)}"
+        elif validation_status == "Rejected":
+            work_item.status = WorkItemStatus.REJECTED
+            work_item.description += f"\n\nRejection reason: {rejection_reason}"
+        
+        # Set priority based on risk calculation
+        try:
+            work_item.priority = WorkItemPriority(risk_priority)
+        except ValueError:
+            work_item.priority = WorkItemPriority.MEDIUM
+        
+        # Set assigned underwriter
+        work_item.assigned_to = assigned_underwriter
+        
+        # Set risk data
+        work_item.risk_score = overall_risk_score
+        work_item.risk_categories = risk_categories
+        
         db.add(work_item)
+        db.flush()  # Get ID before commit
+        
+        # Create initial risk assessment if we have risk data
+        if risk_categories and overall_risk_score > 0:
+            risk_assessment = RiskAssessment(
+                work_item_id=work_item.id,
+                overall_score=overall_risk_score,
+                risk_categories=risk_categories,
+                assessment_date=datetime.utcnow(),
+                assessed_by="System",
+                assessment_notes=f"Initial automated assessment based on Logic Apps submission data. Validation status: {validation_status}"
+            )
+            db.add(risk_assessment)
+        
+        # Create history entry for validation results
+        history_entry = WorkItemHistory(
+            work_item_id=work_item.id,
+            action="created",
+            changed_by="System",
+            timestamp=datetime.utcnow(),
+            details={
+                "validation_status": validation_status,
+                "missing_fields": missing_fields,
+                "rejection_reason": rejection_reason,
+                "risk_priority": risk_priority,
+                "assigned_underwriter": assigned_underwriter
+            }
+        )
+        db.add(history_entry)
+        
         db.commit()
         db.refresh(work_item)
         
