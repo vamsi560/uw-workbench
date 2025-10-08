@@ -10,10 +10,11 @@ from datetime import datetime
 import uuid
 import json
 from pydantic import BaseModel
+from dateutil import parser as date_parser
 from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, Underwriter, SubmissionMessage, create_tables, SubmissionStatus, SubmissionHistory
 from llm_service import llm_service
 from models import (
-    EmailIntakePayload, EmailIntakeResponse, 
+    EmailIntakePayload, EmailIntakeResponse, LogicAppsEmailPayload,
     SubmissionResponse, SubmissionConfirmRequest, 
     SubmissionConfirmResponse, ErrorResponse,
     WorkItemSummary, WorkItemDetail, WorkItemListResponse,
@@ -297,8 +298,16 @@ async def email_intake(
     """
     Process incoming email with attachments and extract insurance data
     """
-    # Extract sender email from either field
-    sender_email = request.sender_email or request.from_email or "Unknown sender"
+    # Extract sender email from any available field (Logic Apps compatibility)
+    sender_email = request.get_sender_email
+    
+    # Parse received_at timestamp if provided
+    received_at_dt = None
+    if request.received_at:
+        try:
+            received_at_dt = date_parser.isoparse(request.received_at.replace('Z', '+00:00'))
+        except Exception as e:
+            logger.warning(f"Could not parse received_at timestamp: {request.received_at}, error: {e}")
     
     logger.info("Processing email intake", subject=request.subject, sender_email=sender_email)
     
@@ -330,16 +339,21 @@ async def email_intake(
         # Generate unique submission reference
         submission_ref = str(uuid.uuid4())
         
-        # Parse attachments if any
+        # Parse attachments if any (supports both formats)
         attachment_text = ""
         if request.attachments:
             logger.info("Processing attachments", count=len(request.attachments))
-            # Filter out attachments with missing data
-            valid_attachments = [
-                {"filename": att.filename, "contentBase64": att.contentBase64} 
-                for att in request.attachments 
-                if att.filename and att.contentBase64
-            ]
+            # Filter out attachments with missing data, support both formats
+            valid_attachments = []
+            for att in request.attachments:
+                filename = att.get_filename
+                content_base64 = att.get_content_base64
+                if filename and content_base64:
+                    valid_attachments.append({
+                        "filename": filename, 
+                        "contentBase64": content_base64
+                    })
+            
             if valid_attachments:
                 attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
         
@@ -368,6 +382,7 @@ async def email_intake(
             sender_email=sender_email,
             body_text=request.body or "No body content",
             extracted_fields=extracted_data,
+            received_at=received_at_dt,  # Store original email received timestamp
             task_status="pending"
         )
         db.add(submission)
@@ -517,7 +532,125 @@ async def email_intake(
         )
 
 
-
+@app.post("/api/logicapps/email/intake", response_model=EmailIntakeResponse)
+async def logic_apps_email_intake(
+    request: LogicAppsEmailPayload,
+    db: Session = Depends(get_db)
+):
+    """
+    Process incoming email from Logic Apps with native Logic Apps format
+    """
+    logger.info("Processing Logic Apps email intake", subject=request.subject, sender_email=request.from_)
+    
+    try:
+        # Parse received_at timestamp
+        received_at_dt = None
+        try:
+            received_at_dt = date_parser.isoparse(request.received_at.replace('Z', '+00:00'))
+        except Exception as e:
+            logger.warning(f"Could not parse received_at timestamp: {request.received_at}, error: {e}")
+        
+        # Check for duplicate submissions (same subject and sender within last hour)
+        from datetime import timedelta
+        one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+        
+        existing_submission = db.query(Submission).filter(
+            Submission.subject == request.subject,
+            Submission.sender_email == request.from_,
+            Submission.created_at > one_hour_ago
+        ).first()
+        
+        if existing_submission:
+            logger.warning("Duplicate submission detected", 
+                         subject=request.subject, 
+                         sender_email=request.from_,
+                         existing_ref=existing_submission.submission_ref)
+            
+            return EmailIntakeResponse(
+                submission_ref=str(existing_submission.submission_ref),
+                submission_id=existing_submission.submission_id,
+                status="duplicate",
+                message="Duplicate submission detected - returning existing submission"
+            )
+        
+        # Generate unique submission reference
+        submission_ref = str(uuid.uuid4())
+        
+        # Parse attachments in Logic Apps format
+        attachment_text = ""
+        if request.attachments:
+            logger.info("Processing Logic Apps attachments", count=len(request.attachments))
+            valid_attachments = [
+                {"filename": att.name, "contentBase64": att.contentBytes} 
+                for att in request.attachments 
+                if att.name and att.contentBytes
+            ]
+            if valid_attachments:
+                attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
+        
+        # Combine email body and attachment text
+        combined_text = f"Email Subject: {request.subject}\n"
+        combined_text += f"From: {request.from_}\n"
+        combined_text += f"Email Body:\n{request.body}\n\n"
+        
+        if attachment_text:
+            combined_text += f"Attachment Content:\n{attachment_text}"
+        
+        logger.info("Extracting structured data with LLM")
+        
+        # Extract structured data using LLM
+        extracted_data = llm_service.extract_insurance_data(combined_text)
+        
+        # Get next submission ID
+        last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
+        next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
+        
+        # Create submission record
+        submission = Submission(
+            submission_id=next_submission_id,
+            submission_ref=submission_ref,
+            subject=request.subject,
+            sender_email=request.from_,
+            body_text=request.body,
+            extracted_fields=extracted_data,
+            received_at=received_at_dt,
+            task_status="pending"
+        )
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+        
+        # Create corresponding work item (simplified version)
+        work_item = WorkItem(
+            submission_id=submission.id,
+            title=request.subject,
+            description=f"Email from {request.from_}",
+            status=WorkItemStatus.PENDING,
+            priority=WorkItemPriority.MEDIUM
+        )
+        db.add(work_item)
+        db.commit()
+        db.refresh(work_item)
+        
+        logger.info("Logic Apps submission and work item created", 
+                   submission_id=submission.submission_id, 
+                   work_item_id=work_item.id,
+                   submission_ref=submission_ref)
+        
+        return EmailIntakeResponse(
+            submission_ref=str(submission_ref),
+            submission_id=submission.submission_id,
+            status="success",
+            message="Logic Apps email processed successfully and submission created"
+        )
+        
+    except Exception as e:
+        logger.error("Error processing Logic Apps email intake", error=str(e), exc_info=True)
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing Logic Apps email: {str(e)}"
+        )
 
 
 @app.post("/api/submissions/confirm/{submission_ref}", response_model=SubmissionConfirmResponse)

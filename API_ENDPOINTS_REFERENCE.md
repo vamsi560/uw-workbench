@@ -39,6 +39,29 @@ POST /api/email/intake
 }
 ```
 
+### 1b. Logic Apps Email Intake (Alternative Format)
+```
+POST /api/logicapps/email/intake
+```
+**Purpose**: Process incoming email from Logic Apps with native Logic Apps format
+**Request Body** (Logic Apps Format):
+```json
+{
+  "subject": "Email Subject",
+  "from": "sender@example.com",
+  "received_at": "2025-10-08T06:30:00Z",
+  "body": "Email body preview",
+  "attachments": [
+    {
+      "name": "file.pdf",
+      "contentType": "application/pdf",
+      "contentBytes": "JVBERi0xLjcNCi..."
+    }
+  ]
+}
+```
+**Response**: Same as regular email intake
+
 ### 2. Get All Submissions
 ```
 GET /api/submissions?skip=0&limit=100

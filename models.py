@@ -6,17 +6,53 @@ import uuid
 
 
 class AttachmentPayload(BaseModel):
+    # Support both Logic Apps format and existing format
     filename: Optional[str] = Field(None, description="Name of the attachment file")
+    name: Optional[str] = Field(None, description="Name of the attachment file (Logic Apps format)")
     contentBase64: Optional[str] = Field(None, description="Base64 encoded file content")
+    contentBytes: Optional[str] = Field(None, description="Base64 encoded file content (Logic Apps format)")
+    contentType: Optional[str] = Field(None, description="MIME type of the attachment")
+    
+    @property
+    def get_filename(self) -> str:
+        """Get filename from either format"""
+        return self.filename or self.name or "unknown_file"
+    
+    @property 
+    def get_content_base64(self) -> str:
+        """Get base64 content from either format"""
+        return self.contentBase64 or self.contentBytes or ""
 
 
 class EmailIntakePayload(BaseModel):
     subject: Optional[str] = Field(None, description="Email subject line")
     sender_email: Optional[str] = Field(None, description="Email sender address")
     from_email: Optional[str] = Field(None, description="Email sender address (legacy)")
+    from_: Optional[str] = Field(None, alias="from", description="Email sender address (Logic Apps format)")
     received_at: Optional[str] = Field(None, description="Email received timestamp")
     body: Optional[str] = Field(None, description="Email body content")
     attachments: List[AttachmentPayload] = Field(default_factory=list, description="List of email attachments")
+    
+    @property
+    def get_sender_email(self) -> str:
+        """Get sender email from any available format"""
+        return self.sender_email or self.from_email or self.from_ or "unknown@sender.com"
+
+
+class LogicAppsAttachment(BaseModel):
+    """Logic Apps specific attachment format"""
+    name: str = Field(..., description="Name of the attachment file")
+    contentType: str = Field(..., description="MIME type of the attachment")
+    contentBytes: str = Field(..., description="Base64 encoded file content")
+
+
+class LogicAppsEmailPayload(BaseModel):
+    """Logic Apps specific email payload format"""
+    subject: str = Field(..., description="Email subject line")
+    from_: str = Field(..., alias="from", description="Email sender address")
+    received_at: str = Field(..., description="Email received timestamp in ISO format")
+    body: str = Field(..., description="Email body content")
+    attachments: List[LogicAppsAttachment] = Field(default_factory=list, description="List of email attachments")
 
 
 class EmailIntakeResponse(BaseModel):

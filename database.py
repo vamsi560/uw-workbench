@@ -82,6 +82,13 @@ class Submission(Base):
     extracted_fields = Column(JSON)  # JSONB equivalent
     assigned_to = Column(Text)  # underwriter email/name
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.NEW, index=True)
+    received_at = Column(DateTime, nullable=True)  # Email received timestamp from Logic Apps
+    task_status = Column(String(100), default="pending")  # Task status for compatibility
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
     # Relationships
     work_items = relationship("WorkItem", back_populates="submission", cascade="all, delete-orphan")
 # Submission status history/audit trail
