@@ -208,13 +208,13 @@ CRITICAL INSTRUCTIONS:
             # Parse JSON
             data = json.loads(content)
             
-            # Validate required fields for cyber insurance
+            # Validate required fields for cyber insurance - FIXED VERSION
             required_fields = ["company_name", "insured_name", "contact_email", "industry", "coverage_amount", "policy_type", "effective_date"]
             for field in required_fields:
                 if field not in data:
                     data[field] = "Not specified"
-                elif not isinstance(data[field], str):
-                    data[field] = str(data[field])
+                # REMOVE the type conversion - let the business logic handle types
+                # The issue was here: we were forcing everything to string, but business_rules expects numbers for some fields
             
             logger.info(f"Successfully parsed JSON response: {data}")
             return data
