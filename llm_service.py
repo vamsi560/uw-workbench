@@ -282,8 +282,9 @@ Return ONLY valid JSON with the following structure:
                         "company_name", "industry", "coverage_amount", "policy_type", "effective_date"
                     ]:
                         v = extracted_fields.get(k)
-                        if v and isinstance(v, str) and v != "Not specified":
-                            key_points.append(f"{k.replace('_',' ').title()}: {v}")
+                        if v is not None and str(v) != "Not specified":
+                            # Convert to string safely to handle both string and numeric values
+                            key_points.append(f"{k.replace('_',' ').title()}: {str(v)}")
                 summary = subject_text or "Submission summary not available"
                 risk_flags = []
                 return {"summary": summary, "key_points": key_points[:6], "risk_flags": risk_flags}
