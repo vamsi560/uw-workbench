@@ -330,9 +330,9 @@ async def email_intake(
         # Extract structured data using LLM
         extracted_data = llm_service.extract_insurance_data(combined_text)
         
-        # Get next submission ID
+        # Get next submission ID with safe type conversion
         last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
-        next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
+        next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
         
         # Create submission record directly with null safety
         submission = Submission(
@@ -570,9 +570,9 @@ async def logic_apps_email_intake(
         # Extract structured data using LLM
         extracted_data = llm_service.extract_insurance_data(combined_text)
         
-        # Get next submission ID
+        # Get next submission ID with safe type conversion
         last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
-        next_submission_id = (last_submission.submission_id + 1) if last_submission else 1
+        next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
         
         # Create submission record
         submission = Submission(
