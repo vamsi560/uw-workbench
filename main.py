@@ -497,7 +497,7 @@ async def logic_apps_email_intake(
     """
     Process incoming email from Logic Apps with native Logic Apps format
     """
-    logger.info("Processing Logic Apps email intake", subject=request.subject, sender_email=request.from_)
+    logger.info(f"Processing Logic Apps email intake: subject={str(request.safe_subject)}, sender_email={str(request.safe_from)}")
     
     try:
         # Parse received_at timestamp
@@ -512,16 +512,13 @@ async def logic_apps_email_intake(
         one_hour_ago = datetime.utcnow() - timedelta(hours=1)
         
         existing_submission = db.query(Submission).filter(
-            Submission.subject == request.subject,
-            Submission.sender_email == request.from_,
+            Submission.subject == str(request.safe_subject),
+            Submission.sender_email == str(request.safe_from),
             Submission.created_at > one_hour_ago
         ).first()
         
         if existing_submission:
-            logger.warning("Duplicate submission detected", 
-                         subject=request.subject, 
-                         sender_email=request.from_,
-                         existing_ref=existing_submission.submission_ref)
+            logger.warning(f"Duplicate submission detected: subject={str(request.safe_subject)}, sender_email={str(request.safe_from)}, existing_ref={str(existing_submission.submission_ref)}")
             
             return EmailIntakeResponse(
                 submission_ref=str(existing_submission.submission_ref),
@@ -546,9 +543,9 @@ async def logic_apps_email_intake(
                 attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
         
         # Combine email body and attachment text
-        combined_text = f"Email Subject: {request.subject}\n"
-        combined_text += f"From: {request.from_}\n"
-        combined_text += f"Email Body:\n{request.body}\n\n"
+        combined_text = f"Email Subject: {str(request.safe_subject)}\n"
+        combined_text += f"From: {str(request.safe_from)}\n"
+        combined_text += f"Email Body:\n{str(request.safe_body)}\n\n"
         
         if attachment_text:
             combined_text += f"Attachment Content:\n{attachment_text}"
@@ -566,9 +563,9 @@ async def logic_apps_email_intake(
         submission = Submission(
             submission_id=next_submission_id,
             submission_ref=submission_ref,
-            subject=request.subject,
-            sender_email=request.from_,
-            body_text=request.body,
+            subject=str(request.safe_subject),
+            sender_email=str(request.safe_from),
+            body_text=str(request.safe_body),
             extracted_fields=extracted_data,
             received_at=received_at_dt,
             task_status="pending"
@@ -598,8 +595,8 @@ async def logic_apps_email_intake(
         # Create work item with business rule results
         work_item = WorkItem(
             submission_id=submission.id,
-            title=request.subject,
-            description=f"Email from {request.from_}",
+            title=str(request.safe_subject),
+            description=f"Email from {str(request.safe_from)}",
             status=WorkItemStatus.PENDING,
             priority=WorkItemPriority.MEDIUM
         )

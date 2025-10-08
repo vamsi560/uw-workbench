@@ -48,11 +48,31 @@ class LogicAppsAttachment(BaseModel):
 
 class LogicAppsEmailPayload(BaseModel):
     """Logic Apps specific email payload format"""
-    subject: str = Field(..., description="Email subject line")
-    from_: str = Field(..., alias="from", description="Email sender address")
-    received_at: str = Field(..., description="Email received timestamp in ISO format")
-    body: str = Field(..., description="Email body content")
+    subject: Optional[str] = Field(default="", description="Email subject line")
+    from_: Optional[str] = Field(default="", alias="from", description="Email sender address")
+    received_at: Optional[str] = Field(default="", description="Email received timestamp in ISO format")
+    body: Optional[str] = Field(default="", description="Email body content")
     attachments: List[LogicAppsAttachment] = Field(default_factory=list, description="List of email attachments")
+    
+    @property
+    def safe_subject(self) -> str:
+        """Get subject with fallback for empty/None values"""
+        return str(self.subject or "No Subject")
+    
+    @property
+    def safe_from(self) -> str:
+        """Get sender with fallback for empty/None values"""
+        return str(self.from_ or "unknown@sender.com")
+    
+    @property
+    def safe_body(self) -> str:
+        """Get body with fallback for empty/None values"""
+        return str(self.body or "")
+    
+    @property
+    def safe_received_at(self) -> str:
+        """Get received_at with fallback for empty/None values"""
+        return str(self.received_at or datetime.utcnow().isoformat())
 
 
 class EmailIntakeResponse(BaseModel):
@@ -72,7 +92,7 @@ class SubmissionResponse(BaseModel):
     extracted_fields: Optional[Dict[str, Any]] = None
     assigned_to: Optional[str] = None
     task_status: str
-    created_at: datetime
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class SubmissionConfirmRequest(BaseModel):
