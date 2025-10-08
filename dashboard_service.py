@@ -655,8 +655,9 @@ class RiskScoringService:
         
         factors = []
         
-        # Industry-specific risks
-        industry = extracted_fields.get("industry", "").lower()
+        # Industry-specific risks - handle both string and integer inputs
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).lower() if industry_raw else ""
         if "healthcare" in industry:
             factors.append(RiskFactorDetail(
                 category="compliance",
@@ -677,8 +678,9 @@ class RiskScoringService:
                 mitigation_recommendation="Ensure SOX, PCI-DSS compliance"
             ))
         
-        # Data type risks
-        data_types = extracted_fields.get("data_types", "").lower()
+        # Data type risks - handle both string and integer inputs
+        data_types_raw = extracted_fields.get("data_types", "")
+        data_types = str(data_types_raw).lower() if data_types_raw else ""
         if "pii" in data_types or "personal" in data_types:
             factors.append(RiskFactorDetail(
                 category="compliance",
@@ -701,8 +703,9 @@ class RiskScoringService:
                 mitigation_recommendation="Implement enterprise security controls"
             ))
         
-        # Security measures (positive factors)
-        security_measures = extracted_fields.get("security_measures", "").lower()
+        # Security measures (positive factors) - handle both string and integer inputs
+        security_measures_raw = extracted_fields.get("security_measures", "")
+        security_measures = str(security_measures_raw).lower() if security_measures_raw else ""
         if "mfa" in security_measures:
             factors.append(RiskFactorDetail(
                 category="technical",
@@ -882,8 +885,9 @@ class RecommendationService:
             conditions.append("Provide evidence of regulatory compliance")
             conditions.append("Quarterly compliance reporting required")
         
-        # Industry-specific conditions
-        industry = extracted_fields.get("industry", "").lower()
+        # Industry-specific conditions - handle both string and integer inputs
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).lower() if industry_raw else ""
         if "healthcare" in industry:
             conditions.append("HIPAA compliance certification required")
         

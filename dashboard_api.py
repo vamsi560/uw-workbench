@@ -571,10 +571,15 @@ async def _build_submission_detail_view(work_item, submission, extracted_fields,
         previous_claims=False  # Would parse from extracted fields
     )
     
-    # Build cybersecurity posture
+    # Build cybersecurity posture - handle both string and integer inputs
+    security_measures_raw = extracted_fields.get("security_measures", "")
+    security_measures_str = str(security_measures_raw) if security_measures_raw else ""
+    data_types_raw = extracted_fields.get("data_types", "")
+    data_types_str = str(data_types_raw) if data_types_raw else ""
+    
     cybersecurity_posture = CybersecurityPosture(
-        security_measures=extracted_fields.get("security_measures", "").split(",") if extracted_fields.get("security_measures") else [],
-        data_types_handled=extracted_fields.get("data_types", "").split(",") if extracted_fields.get("data_types") else [],
+        security_measures=security_measures_str.split(",") if security_measures_str else [],
+        data_types_handled=data_types_str.split(",") if data_types_str else [],
         compliance_certifications=[],
         previous_incidents=False,
         incident_count_last_year=0

@@ -223,7 +223,8 @@ class EnhancedRiskScoringEngine:
     def _assess_industry_risk(cls, extracted_fields: Dict) -> Tuple[float, List[RiskFactorDetail]]:
         """Assess industry-specific cyber risks"""
         
-        industry = extracted_fields.get("industry", "").strip()
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).strip() if industry_raw else ""
         factors = []
         
         # Default industry risk
@@ -336,7 +337,8 @@ class EnhancedRiskScoringEngine:
         base_score = 50.0
         data_score = base_score
         
-        data_types_str = extracted_fields.get("data_types", "").lower()
+        data_types_raw = extracted_fields.get("data_types", "")
+        data_types_str = str(data_types_raw).lower() if data_types_raw else ""
         
         if not data_types_str:
             return base_score, factors
@@ -378,7 +380,8 @@ class EnhancedRiskScoringEngine:
         base_score = 70.0  # Start with higher base assuming poor security
         security_score = base_score
         
-        security_measures_str = extracted_fields.get("security_measures", "").lower()
+        security_measures_raw = extracted_fields.get("security_measures", "")
+        security_measures_str = str(security_measures_raw).lower() if security_measures_raw else ""
         
         if not security_measures_str:
             # No security information provided - assume higher risk
@@ -442,7 +445,8 @@ class EnhancedRiskScoringEngine:
         # Revenue stability
         revenue = cls._parse_revenue(extracted_fields.get("revenue"))
         years_in_business = cls._parse_number(extracted_fields.get("years_in_business"))
-        credit_rating = extracted_fields.get("credit_rating", "").upper()
+        credit_rating_raw = extracted_fields.get("credit_rating", "")
+        credit_rating = str(credit_rating_raw).upper() if credit_rating_raw else ""
         
         financial_score = base_score
         
@@ -511,8 +515,10 @@ class EnhancedRiskScoringEngine:
         base_score = 50.0
         compliance_score = base_score
         
-        industry = extracted_fields.get("industry", "").strip()
-        data_types = extracted_fields.get("data_types", "").lower()
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).strip() if industry_raw else ""
+        data_types_raw = extracted_fields.get("data_types", "")
+        data_types = str(data_types_raw).lower() if data_types_raw else ""
         
         # Industry-specific compliance requirements
         if "healthcare" in industry.lower():
