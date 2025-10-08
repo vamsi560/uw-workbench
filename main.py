@@ -334,13 +334,13 @@ async def email_intake(
         last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
         next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
         
-        # Prepare safe field lengths for database
-        safe_subject = (request.subject or "No subject")[:500]  # Truncate subject if too long
-        safe_sender = str(sender_email)[:250]  # Truncate email if too long
+        # Prepare safe field lengths for database (VARCHAR(255) constraints)
+        safe_subject = (request.subject or "No subject")[:240]  # Truncate subject if too long
+        safe_sender = str(sender_email)[:240]  # Truncate email if too long
         
-        # Handle body_text safely - could be very long
+        # Handle body_text safely - must fit database VARCHAR(255) constraint
         raw_body = request.body or "No body content"
-        safe_body = raw_body[:2000] + "..." if len(raw_body) > 2000 else raw_body
+        safe_body = raw_body[:240] + "..." if len(raw_body) > 240 else raw_body
         
         # Create submission record directly with safe field lengths
         submission = Submission(
@@ -589,20 +589,20 @@ async def logic_apps_email_intake(
         try:
             import base64
             decoded_body = base64.b64decode(safe_body).decode('utf-8')
-            # Use decoded content but truncate if too long
-            body_text = decoded_body[:2000] + "..." if len(decoded_body) > 2000 else decoded_body
+            # Use decoded content but truncate aggressively to fit database constraint
+            body_text = decoded_body[:240] + "..." if len(decoded_body) > 240 else decoded_body
             logger.info("Body decoded from base64", original_length=len(safe_body), decoded_length=len(decoded_body), final_length=len(body_text))
         except Exception as decode_error:
-            # If decoding fails, use original but truncate safely
-            body_text = safe_body[:250] + "..." if len(safe_body) > 250 else safe_body
+            # If decoding fails, use original but truncate very aggressively
+            body_text = safe_body[:240] + "..." if len(safe_body) > 240 else safe_body
             logger.warning("Body decode failed, using truncated original", error=str(decode_error), original_length=len(safe_body), final_length=len(body_text))
         
-        # Create submission record with safe field lengths
+        # Create submission record with safe field lengths (VARCHAR(255) constraints)
         submission = Submission(
             submission_id=next_submission_id,
             submission_ref=submission_ref,
-            subject=str(request.safe_subject)[:500],  # Truncate subject if too long
-            sender_email=str(request.safe_from)[:250],  # Truncate email if too long  
+            subject=str(request.safe_subject)[:240],  # Truncate subject to fit database
+            sender_email=str(request.safe_from)[:240],  # Truncate email to fit database  
             body_text=body_text,
             extracted_fields=extracted_data,
             received_at=received_at_dt,
