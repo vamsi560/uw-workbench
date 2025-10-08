@@ -565,37 +565,46 @@ async def logic_apps_email_intake(
                 # Ensure attachment_text is always a string
                 attachment_text = str(attachment_text) if attachment_text is not None else ""
         
-        # Combine email body and attachment text
+        # Decode base64 body content early for both LLM processing and database storage
+        safe_body = str(request.safe_body)
+        decoded_body_for_llm = safe_body  # Default fallback
+        
+        # If body is base64 encoded, decode it for proper LLM processing
+        try:
+            import base64
+            decoded_body = base64.b64decode(safe_body).decode('utf-8')
+            decoded_body_for_llm = decoded_body  # Use full decoded content for LLM
+            logger.info("Body decoded from base64 for processing", 
+                       original_length=len(safe_body), 
+                       decoded_length=len(decoded_body))
+        except Exception as decode_error:
+            logger.warning("Body decode failed, using original base64", 
+                          error=str(decode_error), 
+                          original_length=len(safe_body))
+        
+        # Combine email body and attachment text using decoded content
         combined_text = f"Email Subject: {str(request.safe_subject)}\n"
         combined_text += f"From: {str(request.safe_from)}\n"
-        combined_text += f"Email Body:\n{str(request.safe_body)}\n\n"
+        combined_text += f"Email Body:\n{decoded_body_for_llm}\n\n"
         
         if attachment_text:
             combined_text += f"Attachment Content:\n{attachment_text}"
         
-        logger.info("Extracting structured data with LLM")
+        logger.info("Extracting structured data with LLM using decoded content")
         
-        # Extract structured data using LLM
+        # Extract structured data using LLM with decoded content
         extracted_data = llm_service.extract_insurance_data(combined_text)
         
         # Get next submission ID with safe type conversion
         last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
         next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
         
-        # Prepare body_text with safe length handling
-        safe_body = str(request.safe_body)
-        
-        # If body is base64 encoded, try to decode it first
-        try:
-            import base64
-            decoded_body = base64.b64decode(safe_body).decode('utf-8')
-            # Use decoded content but truncate aggressively to fit database constraint
-            body_text = decoded_body[:240] + "..." if len(decoded_body) > 240 else decoded_body
-            logger.info("Body decoded from base64", original_length=len(safe_body), decoded_length=len(decoded_body), final_length=len(body_text))
-        except Exception as decode_error:
-            # If decoding fails, use original but truncate very aggressively
+        # Prepare body_text for database storage with safe length handling
+        # Truncate the decoded content for database storage
+        if decoded_body_for_llm != safe_body:  # Successfully decoded
+            body_text = decoded_body_for_llm[:240] + "..." if len(decoded_body_for_llm) > 240 else decoded_body_for_llm
+        else:  # Decoding failed, use original but truncate
             body_text = safe_body[:240] + "..." if len(safe_body) > 240 else safe_body
-            logger.warning("Body decode failed, using truncated original", error=str(decode_error), original_length=len(safe_body), final_length=len(body_text))
         
         # Create submission record with safe field lengths (VARCHAR(255) constraints)
         submission = Submission(
