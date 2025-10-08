@@ -185,12 +185,19 @@ class CyberInsuranceValidator:
         return categories
     
     @classmethod
-    def _parse_coverage_amount(cls, coverage_str: str) -> Optional[float]:
-        """Parse coverage amount from string to float"""
-        if not coverage_str:
+    def _parse_coverage_amount(cls, coverage_str) -> Optional[float]:
+        """Parse coverage amount from string or number to float"""
+        if not coverage_str and coverage_str != 0:
             return None
         
         try:
+            # Handle numeric input (int/float) directly - this fixes the string concatenation error!
+            if isinstance(coverage_str, (int, float)):
+                return float(coverage_str)
+            
+            # Convert to string for string processing
+            coverage_str = str(coverage_str)
+            
             # Remove common formatting characters
             clean_str = coverage_str.replace("$", "").replace(",", "").replace(" ", "")
             
@@ -220,12 +227,19 @@ class CyberInsuranceValidator:
         return cls._parse_coverage_amount(revenue_str)  # Same logic
     
     @classmethod
-    def _parse_employee_count(cls, employee_str: str) -> Optional[int]:
-        """Parse employee count from string to integer"""
-        if not employee_str:
+    def _parse_employee_count(cls, employee_str) -> Optional[int]:
+        """Parse employee count from string or number to integer"""
+        if not employee_str and employee_str != 0:
             return None
         
         try:
+            # Handle numeric input (int/float) directly - fixes string concatenation error!
+            if isinstance(employee_str, (int, float)):
+                return int(employee_str)
+            
+            # Convert to string for string processing
+            employee_str = str(employee_str)
+            
             # Remove common formatting
             clean_str = employee_str.replace(",", "").replace(" ", "")
             
