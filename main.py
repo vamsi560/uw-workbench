@@ -2,7 +2,7 @@
 import logging
 from typing import List
 from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -23,19 +23,18 @@ from models import (
 )
 from config import settings
 from logging_config import configure_logging, get_logger
-import asyncio
 
 # Configure logging first
 configure_logging()
 logger = get_logger(__name__)
 
-# Use minimal file parser for Vercel deployment
+# Use full file parser with all dependencies
 try:
-    from file_parsers_minimal import parse_attachments
-    logger.info("Using minimal file parser for Vercel deployment")
-except ImportError:
     from file_parsers import parse_attachments
-    logger.info("Using full file parser")
+    logger.info("Using full file parser with all capabilities")
+except ImportError:
+    from file_parsers_minimal import parse_attachments
+    logger.info("Falling back to minimal file parser (limited functionality)")
 
 # Create FastAPI app
 app = FastAPI(
@@ -214,16 +213,6 @@ def get_workitems(
         )
         for sub in unique_submissions
     ]
-
-# Duplicate imports section removed - all imports are at the top of the file
-
-# Use minimal file parser for Vercel deployment
-try:
-    from file_parsers_minimal import parse_attachments
-    logger.info("Using minimal file parser for Vercel deployment")
-except ImportError:
-    from file_parsers import parse_attachments
-    logger.info("Using full file parser")
 
 # Create FastAPI app
 app = FastAPI(
