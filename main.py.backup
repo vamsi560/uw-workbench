@@ -443,7 +443,7 @@ async def email_intake(
                         'sme': CompanySize.MEDIUM,
                         'multinational': CompanySize.ENTERPRISE
                     }
-                    work_item.company_size = size_mapping.get(str(company_size).lower() if company_size else "")
+                    work_item.company_size = size_mapping.get(company_size.lower())
         
         # Apply validation results to work item
         if validation_status == "Complete":
@@ -673,7 +673,7 @@ async def logic_apps_email_intake(
                         'sme': CompanySize.MEDIUM,
                         'multinational': CompanySize.ENTERPRISE
                     }
-                    work_item.company_size = size_mapping.get(str(company_size).lower() if company_size else "")
+                    work_item.company_size = size_mapping.get(company_size.lower())
         
         # Apply validation results to work item
         if validation_status == "Complete":
