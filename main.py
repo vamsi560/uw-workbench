@@ -315,12 +315,12 @@ async def email_intake(
                 attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
         
         # Combine email body and attachment text with null safety
-        combined_text = f"Email Subject: {request.subject or 'No subject'}\n"
-        combined_text += f"From: {sender_email}\n"
-        combined_text += f"Email Body:\n{request.body or 'No body content'}\n\n"
+        combined_text = f"Email Subject: {str(request.subject) or 'No subject'}\n"
+        combined_text += f"From: {str(sender_email)}\n"
+        combined_text += f"Email Body:\n{str(request.body) or 'No body content'}\n\n"
         
         if attachment_text:
-            combined_text += f"Attachment Content:\n{attachment_text}"
+            combined_text += f"Attachment Content:\n{str(attachment_text)}"
         
         logger.info("Extracting structured data with LLM")
         
