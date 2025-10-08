@@ -503,14 +503,15 @@ async def logic_apps_email_intake(
     logger.info(f"Processing Logic Apps email intake: subject={str(request.safe_subject)}, sender_email={str(request.safe_from)}")
     
     try:
-        # Parse received_at timestamp with safe string conversion
+        # Parse received_at timestamp with safe string conversion, supporting both field names
         received_at_dt = None
-        if hasattr(request, 'received_at') and request.received_at:
+        received_timestamp = request.received_at or request.receivedDateTime
+        if received_timestamp:
             try:
-                received_at_str = str(request.received_at)
+                received_at_str = str(received_timestamp)
                 received_at_dt = date_parser.isoparse(received_at_str.replace('Z', '+00:00'))
             except Exception as e:
-                logger.warning(f"Could not parse received_at timestamp: {request.received_at}, error: {e}")
+                logger.warning(f"Could not parse received timestamp: {received_timestamp}, error: {e}")
         
         # Check for duplicate submissions (same subject and sender within last hour)
         from datetime import timedelta

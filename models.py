@@ -51,6 +51,7 @@ class LogicAppsEmailPayload(BaseModel):
     subject: Optional[str] = Field(default="", description="Email subject line")
     from_: Optional[str] = Field(default="", alias="from", description="Email sender address")
     received_at: Optional[str] = Field(default="", description="Email received timestamp in ISO format")
+    receivedDateTime: Optional[str] = Field(default="", description="Email received timestamp (Logic Apps format)")
     body: Optional[str] = Field(default="", description="Email body content")
     attachments: List[LogicAppsAttachment] = Field(default_factory=list, description="List of email attachments")
     
@@ -71,8 +72,9 @@ class LogicAppsEmailPayload(BaseModel):
     
     @property
     def safe_received_at(self) -> str:
-        """Get received_at with fallback for empty/None values"""
-        return str(self.received_at or datetime.utcnow().isoformat())
+        """Get received_at with fallback for empty/None values, supporting both field names"""
+        timestamp = self.received_at or self.receivedDateTime or datetime.utcnow().isoformat()
+        return str(timestamp)
 
 
 class EmailIntakeResponse(BaseModel):
