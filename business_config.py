@@ -209,17 +209,20 @@ Underwriting Team
     @classmethod
     def get_industry_coverage_limit(cls, industry: str) -> int:
         """Get maximum coverage limit for an industry (in millions)"""
-        return cls.INDUSTRY_COVERAGE_LIMITS.get(industry.lower(), cls.INDUSTRY_COVERAGE_LIMITS["other"])
+        industry_str = str(industry).lower() if industry else ""
+        return cls.INDUSTRY_COVERAGE_LIMITS.get(industry_str, cls.INDUSTRY_COVERAGE_LIMITS["other"])
     
     @classmethod
     def get_industry_risk_multiplier(cls, industry: str) -> float:
         """Get risk multiplier for an industry"""
-        return cls.INDUSTRY_RISK_MULTIPLIERS.get(industry.lower(), 1.0)
+        industry_str = str(industry).lower() if industry else ""
+        return cls.INDUSTRY_RISK_MULTIPLIERS.get(industry_str, 1.0)
     
     @classmethod
     def get_company_size_risk_factor(cls, company_size: str) -> float:
         """Get risk factor for company size"""
-        return cls.COMPANY_SIZE_RISK_FACTORS.get(company_size.lower(), 1.0)
+        company_size_str = str(company_size).lower() if company_size else ""
+        return cls.COMPANY_SIZE_RISK_FACTORS.get(company_size_str, 1.0)
     
     @classmethod
     def get_available_underwriters(cls, level: str) -> List[str]:
@@ -229,8 +232,10 @@ Underwriting Team
     @classmethod
     def is_valid_status_transition(cls, from_status: str, to_status: str) -> bool:
         """Check if status transition is valid"""
-        valid_transitions = cls.VALID_STATUS_TRANSITIONS.get(from_status.lower(), [])
-        return to_status.lower() in valid_transitions
+        from_status_str = str(from_status).lower() if from_status else ""
+        to_status_str = str(to_status).lower() if to_status else ""
+        valid_transitions = cls.VALID_STATUS_TRANSITIONS.get(from_status_str, [])
+        return to_status_str in valid_transitions
     
     @classmethod
     def get_required_fields(cls, validation_level: str = "standard") -> List[str]:

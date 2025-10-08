@@ -669,7 +669,9 @@ class EnhancedRiskScoringEngine:
         
         # Security information quality
         if extracted_fields.get("security_measures"):
-            security_detail_score = len(extracted_fields["security_measures"]) / 500  # Assume detailed description
+            security_measures = extracted_fields["security_measures"]
+            # Handle both string and integer inputs
+            security_detail_score = len(str(security_measures)) / 500 if security_measures else 0  # Assume detailed description
             confidence += min(security_detail_score * 20, 20)
         
         # Historical data availability
