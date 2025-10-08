@@ -503,12 +503,14 @@ async def logic_apps_email_intake(
     logger.info(f"Processing Logic Apps email intake: subject={str(request.safe_subject)}, sender_email={str(request.safe_from)}")
     
     try:
-        # Parse received_at timestamp
+        # Parse received_at timestamp with safe string conversion
         received_at_dt = None
-        try:
-            received_at_dt = date_parser.isoparse(request.received_at.replace('Z', '+00:00'))
-        except Exception as e:
-            logger.warning(f"Could not parse received_at timestamp: {request.received_at}, error: {e}")
+        if hasattr(request, 'received_at') and request.received_at:
+            try:
+                received_at_str = str(request.received_at)
+                received_at_dt = date_parser.isoparse(received_at_str.replace('Z', '+00:00'))
+            except Exception as e:
+                logger.warning(f"Could not parse received_at timestamp: {request.received_at}, error: {e}")
         
         # Check for duplicate submissions (same subject and sender within last hour)
         from datetime import timedelta
@@ -533,17 +535,26 @@ async def logic_apps_email_intake(
         # Generate unique submission reference
         submission_ref = str(uuid.uuid4())
         
-        # Parse attachments in Logic Apps format
+        # Parse attachments in Logic Apps format with safe string handling
         attachment_text = ""
-        if request.attachments:
+        if hasattr(request, 'attachments') and request.attachments:
             logger.info("Processing Logic Apps attachments", count=len(request.attachments))
-            valid_attachments = [
-                {"filename": att.name, "contentBase64": att.contentBytes} 
-                for att in request.attachments 
-                if att.name and att.contentBytes
-            ]
+            valid_attachments = []
+            for att in request.attachments:
+                # Safely get attachment properties with string conversion
+                att_name = str(att.name) if hasattr(att, 'name') and att.name is not None else None
+                att_content = str(att.contentBytes) if hasattr(att, 'contentBytes') and att.contentBytes is not None else None
+                
+                if att_name and att_content:
+                    valid_attachments.append({
+                        "filename": att_name, 
+                        "contentBase64": att_content
+                    })
+            
             if valid_attachments:
                 attachment_text = parse_attachments(valid_attachments, settings.upload_dir)
+                # Ensure attachment_text is always a string
+                attachment_text = str(attachment_text) if attachment_text is not None else ""
         
         # Combine email body and attachment text
         combined_text = f"Email Subject: {str(request.safe_subject)}\n"
@@ -604,23 +615,26 @@ async def logic_apps_email_intake(
             priority=WorkItemPriority.MEDIUM
         )
         
-        # Extract cyber insurance specific data from LLM results
+        # Extract cyber insurance specific data from LLM results with safe handling
         if extracted_data and isinstance(extracted_data, dict):
-            work_item.industry = extracted_data.get('industry')
-            work_item.policy_type = extracted_data.get('policy_type') or extracted_data.get('coverage_type')
+            # Safely get string values from extracted data
+            industry_raw = extracted_data.get('industry')
+            work_item.industry = str(industry_raw) if industry_raw is not None else None
+            
+            policy_type_raw = extracted_data.get('policy_type') or extracted_data.get('coverage_type')
+            work_item.policy_type = str(policy_type_raw) if policy_type_raw is not None else None
             
             # Use business rules parser for coverage amount
-            work_item.coverage_amount = CyberInsuranceValidator._parse_coverage_amount(
-                extracted_data.get('coverage_amount') or extracted_data.get('policy_limit') or ''
-            )
+            coverage_raw = extracted_data.get('coverage_amount') or extracted_data.get('policy_limit')
+            work_item.coverage_amount = CyberInsuranceValidator._parse_coverage_amount(coverage_raw)
             
-            # Set company size if available
-            company_size = extracted_data.get('company_size')
-            if company_size:
+            # Set company size if available with safe string handling
+            company_size_raw = extracted_data.get('company_size')
+            if company_size_raw is not None:
                 try:
-                    work_item.company_size = CompanySize(company_size)
+                    work_item.company_size = CompanySize(str(company_size_raw))
                 except ValueError:
-                    # Try mapping common variations
+                    # Try mapping common variations with safe string conversion
                     size_mapping = {
                         'small': CompanySize.SMALL,
                         'medium': CompanySize.MEDIUM,
@@ -630,7 +644,8 @@ async def logic_apps_email_intake(
                         'sme': CompanySize.MEDIUM,
                         'multinational': CompanySize.ENTERPRISE
                     }
-                    work_item.company_size = size_mapping.get(str(company_size).lower() if company_size else "")
+                    company_size_str = str(company_size_raw).lower() if company_size_raw else ""
+                    work_item.company_size = size_mapping.get(company_size_str)
         
         # Apply validation results to work item
         if validation_status == "Complete":
@@ -642,17 +657,17 @@ async def logic_apps_email_intake(
             work_item.status = WorkItemStatus.REJECTED
             work_item.description += f"\n\nRejection reason: {str(rejection_reason) if rejection_reason else ''}"
         
-        # Set priority based on risk calculation
+        # Set priority based on risk calculation with safe handling
         try:
-            work_item.priority = WorkItemPriority(risk_priority)
+            work_item.priority = WorkItemPriority(str(risk_priority)) if risk_priority else WorkItemPriority.MEDIUM
         except ValueError:
             work_item.priority = WorkItemPriority.MEDIUM
         
-        # Set assigned underwriter
-        work_item.assigned_to = assigned_underwriter
+        # Set assigned underwriter with safe string handling
+        work_item.assigned_to = str(assigned_underwriter) if assigned_underwriter is not None else None
         
-        # Set risk data
-        work_item.risk_score = overall_risk_score
+        # Set risk data with safe numeric handling
+        work_item.risk_score = float(overall_risk_score) if overall_risk_score is not None else None
         work_item.risk_categories = risk_categories
         
         db.add(work_item)
@@ -662,26 +677,26 @@ async def logic_apps_email_intake(
         if risk_categories and overall_risk_score > 0:
             risk_assessment = RiskAssessment(
                 work_item_id=work_item.id,
-                overall_score=overall_risk_score,
+                overall_score=float(overall_risk_score),
                 risk_categories=risk_categories,
                 assessment_date=datetime.utcnow(),
                 assessed_by="System",
-                assessment_notes=f"Initial automated assessment based on Logic Apps submission data. Validation status: {validation_status}"
+                assessment_notes=f"Initial automated assessment based on Logic Apps submission data. Validation status: {str(validation_status)}"
             )
             db.add(risk_assessment)
         
-        # Create history entry for validation results
+        # Create history entry for validation results with safe string handling
         history_entry = WorkItemHistory(
             work_item_id=work_item.id,
             action="created",
             changed_by="System",
             timestamp=datetime.utcnow(),
             details={
-                "validation_status": validation_status,
-                "missing_fields": missing_fields,
-                "rejection_reason": rejection_reason,
-                "risk_priority": risk_priority,
-                "assigned_underwriter": assigned_underwriter
+                "validation_status": str(validation_status) if validation_status else "Unknown",
+                "missing_fields": [str(field) for field in (missing_fields or [])],
+                "rejection_reason": str(rejection_reason) if rejection_reason else None,
+                "risk_priority": str(risk_priority) if risk_priority else None,
+                "assigned_underwriter": str(assigned_underwriter) if assigned_underwriter else None
             }
         )
         db.add(history_entry)
