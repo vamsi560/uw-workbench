@@ -1,7 +1,7 @@
 
 import logging
 from typing import List
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -23,11 +23,7 @@ from models import (
 )
 from config import settings
 from logging_config import configure_logging, get_logger
-from websocket_manager import websocket_manager
 from dashboard_api import dashboard_router
-import asyncio
-from logging_config import configure_logging, get_logger
-from websocket_manager import websocket_manager
 import asyncio
 
 # Configure logging first
@@ -219,35 +215,8 @@ def get_workitems(
         )
         for sub in unique_submissions
     ]
-import logging
-from typing import List
-from fastapi import FastAPI, HTTPException, Depends, status, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
-from datetime import datetime
-import uuid
-import json
 
-from database import get_db, Submission, WorkItem, RiskAssessment, Comment, User, WorkItemHistory, WorkItemStatus, WorkItemPriority, CompanySize, Underwriter, SubmissionMessage, create_tables
-from llm_service import llm_service
-from models import (
-    EmailIntakePayload, EmailIntakeResponse, 
-    SubmissionResponse, SubmissionConfirmRequest, 
-    SubmissionConfirmResponse, ErrorResponse,
-    WorkItemSummary, WorkItemDetail, WorkItemListResponse,
-    EnhancedPollingResponse, RiskCategories,
-    WorkItemStatusEnum, WorkItemPriorityEnum, CompanySizeEnum
-)
-from config import settings
-from logging_config import configure_logging, get_logger
-from websocket_manager import websocket_manager
-import asyncio
-
-# Configure logging first
-configure_logging()
-logger = get_logger(__name__)
+# Duplicate imports section removed - all imports are at the top of the file
 
 # Use minimal file parser for Vercel deployment
 try:
@@ -977,17 +946,8 @@ async def update_work_item_status(
         db.commit()
         db.refresh(work_item)
         
-        # Broadcast status update
-        await websocket_manager.broadcast_message({
-            "type": "work_item_status_update",
-            "data": {
-                "id": work_item.id,
-                "old_status": old_status,
-                "new_status": new_status,
-                "changed_by": changed_by,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-        })
+        # Broadcast status update (websocket functionality temporarily disabled for deployment)
+        logger.info(f"Status update broadcast: work_item {work_item.id} changed from {old_status} to {new_status} by {changed_by}")
         
         return {
             "message": "Status updated successfully",
@@ -1469,21 +1429,12 @@ async def debug_duplicate_work_items(db: Session = Depends(get_db)):
     }
 
 
-@app.websocket("/ws/workitems")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time work item updates"""
-    await websocket_manager.connect(websocket)
-    try:
-        while True:
-            # Keep the connection alive and handle any incoming messages
-            data = await websocket.receive_text()
-            # Echo back any messages (optional)
-            await websocket_manager.send_personal_message(f"Echo: {data}", websocket)
-    except WebSocketDisconnect:
-        await websocket_manager.disconnect(websocket)
-    except Exception as e:
-        logger.error(f"WebSocket error: {str(e)}")
-        await websocket_manager.disconnect(websocket)
+# WebSocket endpoint temporarily disabled for deployment
+# @app.websocket("/ws/workitems")
+# async def websocket_endpoint(websocket: WebSocket):
+#     """WebSocket endpoint for real-time work item updates"""
+#     logger.info("WebSocket connection attempt - temporarily disabled")
+#     pass
 
 
 
@@ -1533,8 +1484,8 @@ async def broadcast_new_workitem(work_item: WorkItem, submission: Submission, bu
                 "assigned_underwriter": business_data.get("assigned_underwriter")
             })
         
-        await websocket_manager.broadcast_workitem(workitem_data)
-        logger.info(f"Broadcasted new work item: {work_item.id} (submission: {submission.submission_id})")
+        # WebSocket broadcast temporarily disabled for deployment
+        logger.info(f"New work item created: {work_item.id} (submission: {submission.submission_id}) - broadcast would occur here")
         
     except Exception as e:
         logger.error(f"Error broadcasting work item: {str(e)}")
