@@ -23,7 +23,6 @@ from models import (
 )
 from config import settings
 from logging_config import configure_logging, get_logger
-from dashboard_api import dashboard_router
 import asyncio
 
 # Configure logging first
@@ -54,8 +53,8 @@ app.add_middleware(
     allow_headers=["*"] if settings.cors_headers == "*" else settings.cors_headers.split(","),
 )
 
-# Include dashboard router
-app.include_router(dashboard_router)
+# Dashboard router temporarily disabled for deployment
+# app.include_router(dashboard_router)
 
 # --- End app creation ---
 
