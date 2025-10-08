@@ -450,10 +450,10 @@ async def email_intake(
             work_item.status = WorkItemStatus.PENDING
         elif validation_status == "Incomplete":
             work_item.status = WorkItemStatus.PENDING
-            work_item.description += f"\n\nMissing fields: {', '.join(missing_fields)}"
+            work_item.description += f"\n\nMissing fields: {', '.join(str(field) for field in missing_fields)}"
         elif validation_status == "Rejected":
             work_item.status = WorkItemStatus.REJECTED
-            work_item.description += f"\n\nRejection reason: {rejection_reason}"
+            work_item.description += f"\n\nRejection reason: {str(rejection_reason) if rejection_reason else ''}"
         
         # Set priority based on risk calculation
         try:
@@ -680,10 +680,10 @@ async def logic_apps_email_intake(
             work_item.status = WorkItemStatus.PENDING
         elif validation_status == "Incomplete":
             work_item.status = WorkItemStatus.PENDING
-            work_item.description += f"\n\nMissing fields: {', '.join(missing_fields)}"
+            work_item.description += f"\n\nMissing fields: {', '.join(str(field) for field in missing_fields)}"
         elif validation_status == "Rejected":
             work_item.status = WorkItemStatus.REJECTED
-            work_item.description += f"\n\nRejection reason: {rejection_reason}"
+            work_item.description += f"\n\nRejection reason: {str(rejection_reason) if rejection_reason else ''}"
         
         # Set priority based on risk calculation
         try:
