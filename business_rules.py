@@ -31,7 +31,10 @@ class CyberInsuranceValidator:
         "Technology E&O",
         "Cyber Security",
         "First Party Cyber",
-        "Third Party Cyber"
+        "Third Party Cyber",
+        "cyber",  # Common shorthand from LLM
+        "Cyber",  # Capitalized version
+        "CYBER"   # All caps version
     ]
     
     # Use centralized business configuration
@@ -116,7 +119,7 @@ class CyberInsuranceValidator:
         # Determine underwriter level based on industry and coverage
         for level, criteria in BusinessConfig.UNDERWRITER_ASSIGNMENTS.items():
             if (industry in criteria["industries"] and 
-                coverage_amount >= criteria["min_coverage"]):
+                coverage_amount is not None and coverage_amount >= criteria["min_coverage"]):
                 
                 # Get available underwriters for this level
                 available = BusinessConfig.get_available_underwriters(level.split("_")[0])  # senior, standard, junior

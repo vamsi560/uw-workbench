@@ -91,6 +91,7 @@ class SubmissionResponse(BaseModel):
     subject: str
     sender_email: str
     body_text: Optional[str] = None
+    attachment_content: Optional[str] = None
     extracted_fields: Optional[Dict[str, Any]] = None
     assigned_to: Optional[str] = None
     task_status: str
@@ -274,6 +275,7 @@ class WorkItemDetail(BaseModel):
     subject: Optional[str] = None  # From submission
     sender_email: Optional[str] = None  # From submission
     body_text: Optional[str] = None  # From submission
+    attachment_content: Optional[str] = None  # From submission
     extracted_fields: Optional[Dict[str, Any]] = None  # From submission
 
 

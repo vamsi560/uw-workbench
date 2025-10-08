@@ -79,6 +79,7 @@ class Submission(Base):
     subject = Column(Text, nullable=False)
     sender_email = Column(Text, nullable=False)
     body_text = Column(Text)
+    attachment_content = Column(Text, nullable=True)  # Decoded attachment text content
     extracted_fields = Column(JSON)  # JSONB equivalent
     assigned_to = Column(Text)  # underwriter email/name
     status = Column(Enum(SubmissionStatus), default=SubmissionStatus.NEW, index=True)

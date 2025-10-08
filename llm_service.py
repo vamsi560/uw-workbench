@@ -200,31 +200,77 @@ CRITICAL INSTRUCTIONS:
             raise
     
     def _parse_json_response(self, content: str) -> Dict[str, Any]:
-        """Parse JSON response from LLM"""
+        """Parse JSON response from LLM with improved error handling"""
         try:
             # Clean up response - remove any markdown formatting
             content = content.replace("```json", "").replace("```", "").strip()
             
+            # Handle truncated JSON by finding the last complete field
+            if not content.endswith('}'):
+                # Find the last comma and try to close the JSON
+                last_comma = content.rfind(',')
+                if last_comma != -1:
+                    # Remove incomplete field after last comma and close JSON
+                    content = content[:last_comma] + '\n}'
+                    logger.warning("JSON response was truncated, attempting to fix")
+                else:
+                    # If no comma found, try just closing the brace
+                    content = content + '\n}'
+            
             # Parse JSON
             data = json.loads(content)
             
-            # Validate required fields for cyber insurance - FIXED VERSION
+            # Validate required fields for cyber insurance
             required_fields = ["company_name", "insured_name", "contact_email", "industry", "coverage_amount", "policy_type", "effective_date"]
             for field in required_fields:
                 if field not in data:
                     data[field] = "Not specified"
-                # REMOVE the type conversion - let the business logic handle types
-                # The issue was here: we were forcing everything to string, but business_rules expects numbers for some fields
             
-            logger.info(f"Successfully parsed JSON response: {data}")
+            # If policy_type is not specified, default to "cyber" since this is a cyber insurance system
+            if data.get("policy_type") == "Not specified" or not data.get("policy_type"):
+                data["policy_type"] = "cyber"
+            
+            logger.info(f"Successfully parsed JSON response with {len(data)} fields")
             return data
             
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing JSON response: {str(e)}")
-            logger.error(f"Raw content: {content}")
-            return self._get_default_response()
+            logger.error(f"Raw content length: {len(content)}")
+            # Try extracting partial data from malformed JSON
+            return self._extract_partial_data(content)
         except Exception as e:
             logger.error(f"Error processing response: {str(e)}")
+            return self._get_default_response()
+    
+    def _extract_partial_data(self, content: str) -> Dict[str, Any]:
+        """Extract partial data from malformed JSON"""
+        try:
+            # Start with default response
+            data = self._get_default_response()
+            
+            # Try to extract key-value pairs using regex
+            import re
+            
+            # Look for JSON field patterns
+            patterns = [
+                r'"company_name":\s*"([^"]*)"',
+                r'"industry":\s*"([^"]*)"',
+                r'"policy_type":\s*"([^"]*)"',
+                r'"insured_name":\s*"([^"]*)"',
+                r'"contact_email":\s*"([^"]*)"'
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, content)
+                if match:
+                    field_name = pattern.split('"')[1]
+                    data[field_name] = match.group(1)
+            
+            logger.info(f"Extracted partial data from malformed JSON: {data}")
+            return data
+            
+        except Exception as e:
+            logger.error(f"Failed to extract partial data: {e}")
             return self._get_default_response()
     
     def _get_default_response(self) -> Dict[str, Any]:
@@ -237,7 +283,7 @@ CRITICAL INSTRUCTIONS:
             "industry": "Not specified",
             "company_size": "Not specified",
             "coverage_amount": "Not specified",
-            "policy_type": "cyber",
+            "policy_type": "cyber",  # Default to cyber since this is a cyber insurance system
             "effective_date": "Not specified",
             "expiry_date": "Not specified",
             "data_types": "Not specified",
