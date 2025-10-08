@@ -68,13 +68,15 @@ class CyberInsuranceValidator:
         if missing_fields:
             return "Incomplete", missing_fields, f"Missing required fields: {', '.join(missing_fields)}"
         
-        # Validate policy type appetite
-        policy_type = extracted_fields.get("policy_type", "").strip()
+        # Validate policy type appetite - handle both string and integer inputs
+        policy_type_raw = extracted_fields.get("policy_type", "")
+        policy_type = str(policy_type_raw).strip() if policy_type_raw else ""
         if policy_type not in cls.ACCEPTED_POLICY_TYPES:
             return "Rejected", [], f"Policy type '{policy_type}' is outside our cyber insurance appetite. Accepted types: {', '.join(cls.ACCEPTED_POLICY_TYPES)}"
         
-        # Industry-specific validation
-        industry = extracted_fields.get("industry", "").strip()
+        # Industry-specific validation - handle both string and integer inputs
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).strip() if industry_raw else ""
         if not industry:
             missing_fields.append("industry")
             return "Incomplete", missing_fields, "Industry classification is required for cyber insurance"
@@ -107,7 +109,8 @@ class CyberInsuranceValidator:
         """
         Assign underwriter based on industry specialization and risk profile using centralized config
         """
-        industry = extracted_fields.get("industry", "").strip().lower()
+        industry_raw = extracted_fields.get("industry", "")
+        industry = str(industry_raw).strip().lower() if industry_raw else ""
         coverage_amount = cls._parse_coverage_amount(extracted_fields.get("coverage_amount", ""))
         
         # Determine underwriter level based on industry and coverage
@@ -164,8 +167,9 @@ class CyberInsuranceValidator:
             categories["technical"] += 25   # Higher technical risks
             categories["operational"] += 10
         
-        # Data type risk adjustments
-        data_types = extracted_fields.get("data_types", "").lower()
+        # Data type risk adjustments - handle both string and integer inputs
+        data_types_raw = extracted_fields.get("data_types", "")
+        data_types = str(data_types_raw).lower() if data_types_raw else ""
         if "pii" in data_types or "personal" in data_types:
             categories["compliance"] += 15
         if "payment" in data_types or "credit card" in data_types:
@@ -173,8 +177,9 @@ class CyberInsuranceValidator:
         if "medical" in data_types or "phi" in data_types:
             categories["compliance"] += 25
         
-        # Security measures adjustments
-        security_measures = extracted_fields.get("security_measures", "").lower()
+        # Security measures adjustments - handle both string and integer inputs
+        security_measures_raw = extracted_fields.get("security_measures", "")
+        security_measures = str(security_measures_raw).lower() if security_measures_raw else ""
         if any(measure in security_measures for measure in ["mfa", "encryption", "firewall"]):
             categories["technical"] -= 10  # Reduce risk for good security
         
