@@ -249,6 +249,71 @@ class WorkItemHistory(Base):
     work_item = relationship("WorkItem", back_populates="history")
 
 
+class GuidewireResponse(Base):
+    """Store comprehensive Guidewire API response data for UI display"""
+    __tablename__ = "guidewire_responses"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    work_item_id = Column(Integer, ForeignKey("work_items.id"), nullable=False, index=True)
+    submission_id = Column(Integer, ForeignKey("submissions.id"), nullable=False, index=True)
+    
+    # Account Information
+    guidewire_account_id = Column(String(100), nullable=True, index=True)
+    account_number = Column(String(50), nullable=True, index=True)
+    account_status = Column(String(50), nullable=True)
+    organization_name = Column(String(255), nullable=True)
+    number_of_contacts = Column(Integer, nullable=True)
+    
+    # Job/Submission Information
+    guidewire_job_id = Column(String(100), nullable=True, index=True)
+    job_number = Column(String(50), nullable=True, index=True)
+    job_status = Column(String(50), nullable=True)
+    job_effective_date = Column(DateTime, nullable=True)
+    base_state = Column(String(10), nullable=True)
+    
+    # Policy Information  
+    policy_number = Column(String(50), nullable=True, index=True)
+    policy_type = Column(String(100), nullable=True)
+    underwriting_company = Column(String(255), nullable=True)
+    producer_code = Column(String(50), nullable=True)
+    
+    # Coverage Information (JSON to store flexible coverage terms)
+    coverage_terms = Column(JSON, nullable=True)  # Store all coverage limits and terms
+    coverage_display_values = Column(JSON, nullable=True)  # Human-readable coverage descriptions
+    
+    # Pricing Information
+    total_cost_amount = Column(Float, nullable=True)
+    total_cost_currency = Column(String(10), nullable=True)
+    total_premium_amount = Column(Float, nullable=True)
+    total_premium_currency = Column(String(10), nullable=True)
+    rate_as_of_date = Column(DateTime, nullable=True)
+    
+    # Business Data from Guidewire
+    business_started_date = Column(DateTime, nullable=True)
+    total_employees = Column(Integer, nullable=True)
+    total_revenues = Column(Float, nullable=True)
+    total_assets = Column(Float, nullable=True)
+    total_liabilities = Column(Float, nullable=True)
+    industry_type = Column(String(100), nullable=True)
+    
+    # Response Metadata
+    response_checksum = Column(String(100), nullable=True)  # For detecting changes
+    api_response_raw = Column(JSON, nullable=True)  # Store full response for debugging
+    submission_success = Column(Boolean, default=False)
+    quote_generated = Column(Boolean, default=False)
+    
+    # Navigation Links (for future API calls)
+    api_links = Column(JSON, nullable=True)  # Store Guidewire API navigation links
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    work_item = relationship("WorkItem", backref="guidewire_response")
+    submission = relationship("Submission", backref="guidewire_response")
+
+
 # Database dependency
 def get_db():
     db = SessionLocal()

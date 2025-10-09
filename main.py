@@ -36,6 +36,20 @@ except ImportError:
     from file_parsers_minimal import parse_attachments
     logger.info("Falling back to minimal file parser (limited functionality)")
 
+# Helper function to parse extracted fields
+def _parse_extracted_fields(extracted_fields):
+    """Parse extracted fields from JSON string or return dict as-is"""
+    if isinstance(extracted_fields, str):
+        try:
+            return json.loads(extracted_fields)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse extracted_fields JSON string")
+            return {}
+    elif isinstance(extracted_fields, dict):
+        return extracted_fields
+    else:
+        return {}
+
 # Create FastAPI app
 app = FastAPI(
     title="Underwriting Workbench API",
@@ -54,6 +68,14 @@ app.add_middleware(
 
 # Dashboard router temporarily disabled for deployment
 # app.include_router(dashboard_router)
+
+# Include Guidewire integration router
+from guidewire_endpoints import router as guidewire_router
+app.include_router(guidewire_router)
+
+# Include Guidewire dashboard API router  
+from guidewire_dashboard_api import router as guidewire_dashboard_router
+app.include_router(guidewire_dashboard_router)
 
 # --- End app creation ---
 
@@ -1181,7 +1203,8 @@ async def poll_workitems(
                     "policy_type": work_item.policy_type,
                     "coverage_amount": work_item.coverage_amount,
                     "created_at": work_item.created_at.isoformat() + "Z",
-                    "updated_at": work_item.updated_at.isoformat() + "Z"
+                    "updated_at": work_item.updated_at.isoformat() + "Z",
+                    "extracted_fields": _parse_extracted_fields(submission.extracted_fields) if submission.extracted_fields else {}
                 },
                 "risk_assessment": {
                     "overall_score": risk_assessment.overall_risk_score if risk_assessment else work_item.risk_score,
@@ -1238,7 +1261,8 @@ async def poll_workitems(
                 created_at=work_item.created_at,
                 updated_at=work_item.updated_at,
                 comments_count=comments_count,
-                has_urgent_comments=has_urgent_comments
+                has_urgent_comments=has_urgent_comments,
+                extracted_fields=_parse_extracted_fields(submission.extracted_fields) if submission.extracted_fields else {}
             )
             
             # Include detailed data if requested

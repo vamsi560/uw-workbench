@@ -250,6 +250,7 @@ class WorkItemSummary(BaseModel):
     updated_at: datetime
     comments_count: int = 0
     has_urgent_comments: bool = False
+    extracted_fields: Optional[Dict[str, Any]] = None
 
 
 class WorkItemDetail(BaseModel):
@@ -384,6 +385,105 @@ class WorkItemStatusDistributionResponse(BaseModel):
 
 class RiskScoreDistributionResponse(BaseModel):
     risk_distribution: List[RiskDistributionData]
+
+
+# Guidewire Models
+class GuidewireAccountInfo(BaseModel):
+    """Account information from Guidewire"""
+    guidewire_account_id: Optional[str] = None
+    account_number: Optional[str] = None
+    account_status: Optional[str] = None
+    organization_name: Optional[str] = None
+    number_of_contacts: Optional[int] = None
+
+
+class GuidewireJobInfo(BaseModel):
+    """Job/Submission information from Guidewire"""
+    guidewire_job_id: Optional[str] = None
+    job_number: Optional[str] = None
+    job_status: Optional[str] = None
+    job_effective_date: Optional[datetime] = None
+    base_state: Optional[str] = None
+    policy_number: Optional[str] = None
+    policy_type: Optional[str] = None
+    underwriting_company: Optional[str] = None
+    producer_code: Optional[str] = None
+
+
+class GuidewirePricingInfo(BaseModel):
+    """Pricing information from Guidewire"""
+    total_cost_amount: Optional[float] = None
+    total_cost_currency: Optional[str] = None
+    total_premium_amount: Optional[float] = None
+    total_premium_currency: Optional[str] = None
+    rate_as_of_date: Optional[datetime] = None
+
+
+class GuidewireCoverageInfo(BaseModel):
+    """Coverage information from Guidewire"""
+    coverage_terms: Optional[Dict[str, Any]] = None
+    coverage_display_values: Optional[Dict[str, Any]] = None
+
+
+class GuidewireBusinessData(BaseModel):
+    """Business data from Guidewire"""
+    business_started_date: Optional[datetime] = None
+    total_employees: Optional[int] = None
+    total_revenues: Optional[float] = None
+    total_assets: Optional[float] = None
+    total_liabilities: Optional[float] = None
+    industry_type: Optional[str] = None
+
+
+class GuidewireResponseData(BaseModel):
+    """Complete Guidewire response data for UI display"""
+    id: int
+    work_item_id: int
+    submission_id: int
+    
+    # Account Information
+    account_info: GuidewireAccountInfo
+    
+    # Job Information
+    job_info: GuidewireJobInfo
+    
+    # Pricing Information
+    pricing_info: GuidewirePricingInfo
+    
+    # Coverage Information
+    coverage_info: GuidewireCoverageInfo
+    
+    # Business Data
+    business_data: GuidewireBusinessData
+    
+    # Response Metadata
+    response_checksum: Optional[str] = None
+    submission_success: bool = False
+    quote_generated: bool = False
+    api_links: Optional[Dict[str, Any]] = None
+    
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class GuidewireSubmissionSummary(BaseModel):
+    """Summary of Guidewire submission for dashboard display"""
+    work_item_id: int
+    account_number: Optional[str] = None
+    job_number: Optional[str] = None
+    organization_name: Optional[str] = None
+    job_status: Optional[str] = None
+    policy_type: Optional[str] = None
+    total_cost_amount: Optional[float] = None
+    total_cost_currency: Optional[str] = None
+    job_effective_date: Optional[datetime] = None
+    submission_success: bool = False
+    quote_generated: bool = False
+    created_at: datetime
 
 
 # Fix forward reference
