@@ -18,25 +18,34 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GuidewireConfig:
     """Configuration for Guidewire API connection"""
-    base_url: str = "https://pc-dev-gwcpdev.valuemom.zeta1-andromeda.guidewire.net"
+    base_url: str = settings.guidewire_base_url
     composite_endpoint: str = "/rest/composite/v1/composite"
-    username: str = None  # Will need to be configured
-    password: str = None  # Will need to be configured
-    timeout: int = 30
+    auth_endpoint: str = settings.guidewire_auth_endpoint
+    username: str = settings.guidewire_username
+    password: str = settings.guidewire_password
+    bearer_token: str = settings.guidewire_bearer_token
+    timeout: int = settings.guidewire_timeout
+    token_buffer: int = settings.guidewire_token_buffer
     
     @property
     def full_url(self) -> str:
         return f"{self.base_url}{self.composite_endpoint}"
+    
+    @property
+    def auth_url(self) -> str:
+        return f"{self.base_url}{self.auth_endpoint}"
 
 class GuidewireClient:
     """
     Client for interacting with Guidewire PolicyCenter API
-    Supports the composite endpoint for multi-step operations
+    Supports the composite endpoint for multi-step operations with automatic token refresh
     """
     
     def __init__(self, config: Optional[GuidewireConfig] = None):
         self.config = config or GuidewireConfig()
         self.session = requests.Session()
+        self._current_token = None
+        self._token_expires_at = None
         self._setup_session()
     
     def _setup_session(self):
@@ -48,12 +57,96 @@ class GuidewireClient:
             'User-Agent': 'UW-Workbench/1.0'
         })
         
-        # Setup authentication if credentials provided
-        if self.config.username and self.config.password:
-            self.session.auth = (self.config.username, self.config.password)
-            logger.info("Guidewire session configured with authentication")
-        else:
-            logger.warning("No Guidewire credentials configured - API calls may fail")
+        # Setup authentication - will be handled dynamically
+        logger.info("Guidewire client initialized - tokens will be generated as needed")
+    
+    def _generate_token(self) -> Optional[str]:
+        """Generate a new bearer token using username/password"""
+        if not (self.config.username and self.config.password):
+            logger.error("Username and password required for token generation")
+            return None
+            
+        try:
+            # Prepare authentication request
+            auth_payload = {
+                "username": self.config.username,
+                "password": self.config.password
+            }
+            
+            logger.info(f"Generating new Guidewire token from {self.config.auth_url}")
+            
+            # Make authentication request
+            response = requests.post(
+                self.config.auth_url,
+                json=auth_payload,
+                headers={
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                timeout=self.config.timeout
+            )
+            
+            if response.status_code == 200:
+                auth_data = response.json()
+                token = auth_data.get('token') or auth_data.get('access_token') or auth_data.get('bearerToken')
+                
+                if token:
+                    # Calculate expiration time (usually provided in response)
+                    expires_in = auth_data.get('expires_in', 3600)  # Default 1 hour
+                    self._token_expires_at = datetime.now().timestamp() + expires_in
+                    
+                    logger.info(f"Successfully generated Guidewire token (expires in {expires_in}s)")
+                    return token
+                else:
+                    logger.error(f"Token not found in response: {auth_data}")
+                    return None
+            else:
+                logger.error(f"Authentication failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Token generation failed: {str(e)}")
+            return None
+    
+    def _is_token_valid(self) -> bool:
+        """Check if current token is still valid"""
+        if not self._current_token or not self._token_expires_at:
+            return False
+        
+        # Check if token expires within buffer time
+        current_time = datetime.now().timestamp()
+        buffer_time = self.config.token_buffer  # seconds before expiry
+        
+        return current_time < (self._token_expires_at - buffer_time)
+    
+    def _ensure_valid_token(self) -> bool:
+        """Ensure we have a valid bearer token"""
+        # Priority 1: Use static bearer token if provided (no expiry management needed)
+        if self.config.bearer_token:
+            if not self._current_token:
+                self._current_token = self.config.bearer_token
+                self.session.headers.update({
+                    'Authorization': f'Bearer {self._current_token}'
+                })
+                logger.info("Using static bearer token (no expiry management)")
+            return True
+        
+        # Priority 2: Dynamic token generation using username/password
+        if not self._is_token_valid():
+            logger.info("Token expired or missing, generating new token...")
+            new_token = self._generate_token()
+            if new_token:
+                self._current_token = new_token
+                # Update session headers
+                self.session.headers.update({
+                    'Authorization': f'Bearer {self._current_token}'
+                })
+                return True
+            else:
+                logger.error("Failed to generate new token")
+                return False
+        
+        return True
     
     def test_connection(self) -> Dict[str, Any]:
         """
@@ -61,6 +154,14 @@ class GuidewireClient:
         Returns connection status and basic info
         """
         try:
+            # Ensure we have a valid token
+            if not self._ensure_valid_token():
+                return {
+                    "success": False,
+                    "message": "Failed to authenticate with Guidewire",
+                    "error": "Authentication failed"
+                }
+            
             # Try a simple GET to test connectivity
             response = self.session.get(
                 self.config.base_url + "/rest",
@@ -106,6 +207,14 @@ class GuidewireClient:
             Dictionary with response data and status
         """
         try:
+            # Ensure we have a valid token before making the request
+            if not self._ensure_valid_token():
+                return {
+                    "success": False,
+                    "error": "Authentication failed",
+                    "message": "Could not obtain valid bearer token"
+                }
+            
             logger.info(f"Submitting composite request to {self.config.full_url}")
             logger.debug(f"Payload: {json.dumps(requests_payload, indent=2)}")
             

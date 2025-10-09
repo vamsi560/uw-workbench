@@ -103,7 +103,7 @@ class SubmissionConfirmRequest(BaseModel):
 
 
 class SubmissionConfirmResponse(BaseModel):
-    submission_id: int
+    submission_id: str  # Changed from int to str to support string IDs like 'TEST-2025-001'
     submission_ref: str
     work_item_id: int
     assigned_to: str

@@ -368,9 +368,8 @@ async def email_intake(
         # Extract structured data using LLM
         extracted_data = llm_service.extract_insurance_data(combined_text)
         
-        # Get next submission ID with safe type conversion
-        last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
-        next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
+        # Generate unique submission ID with timestamp
+        next_submission_id = f"SUB-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         
         # Prepare safe field lengths for database (VARCHAR(255) constraints)
         safe_subject = (request.subject or "No subject")[:240]  # Truncate subject if too long
@@ -668,9 +667,8 @@ async def logic_apps_email_intake(
         # Extract structured data using LLM with decoded content
         extracted_data = llm_service.extract_insurance_data(combined_text)
         
-        # Get next submission ID with safe type conversion
-        last_submission = db.query(Submission).order_by(Submission.submission_id.desc()).first()
-        next_submission_id = (int(last_submission.submission_id) + 1) if last_submission else 1
+        # Generate unique submission ID with timestamp
+        next_submission_id = f"SUB-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         
         # Prepare body_text for database storage with safe length handling
         # Truncate the decoded content for database storage
