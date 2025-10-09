@@ -5,13 +5,38 @@ import logging
 from typing import List, Dict, Any
 import pdfplumber
 import fitz  # PyMuPDF
-from docx import Document
-import pandas as pd
-import pytesseract
-from PIL import Image
-import openpyxl
 
 logger = logging.getLogger(__name__)
+
+# Optional imports for file types we may not support in production
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
+    logger.warning("python-docx not available - Word document parsing disabled")
+
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+    logger.warning("pandas not available - Excel parsing disabled")
+
+try:
+    import pytesseract
+    from PIL import Image
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    logger.warning("pytesseract/PIL not available - OCR parsing disabled")
+
+try:
+    import openpyxl
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    logger.warning("openpyxl not available - Excel parsing disabled")
 
 
 class FileParser:
@@ -93,6 +118,9 @@ class FileParser:
     @staticmethod
     def parse_docx(file_path: str) -> str:
         """Extract text from DOCX file"""
+        if not DOCX_AVAILABLE:
+            return f"Word document parsing not available: {os.path.basename(file_path)} (python-docx not installed)"
+        
         try:
             doc = Document(file_path)
             text_content = []
@@ -122,6 +150,9 @@ class FileParser:
     @staticmethod
     def parse_xlsx(file_path: str) -> str:
         """Extract text from XLSX file"""
+        if not PANDAS_AVAILABLE or not EXCEL_AVAILABLE:
+            return f"Excel parsing not available: {os.path.basename(file_path)} (pandas/openpyxl not installed)"
+        
         try:
             text_content = []
             
@@ -161,6 +192,9 @@ class FileParser:
     @staticmethod
     def parse_image(file_path: str) -> str:
         """Extract text from image using OCR"""
+        if not OCR_AVAILABLE:
+            return f"Image OCR not available: {os.path.basename(file_path)} (pytesseract/PIL not installed)"
+        
         try:
             # Open image
             image = Image.open(file_path)
