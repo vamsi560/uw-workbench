@@ -1,118 +1,64 @@
 #!/usr/bin/env python3
 """
-Debug script to test the actual LLM extraction and business rules processing
+Test the exact attachment processing with your PDF content
 """
 
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from llm_service import llm_service
-from business_rules import CyberInsuranceValidator, WorkflowEngine
-from bs4 import BeautifulSoup
+# Test with the actual import sequence from main.py
+print("Testing import sequence from main.py...")
 
-def test_html_to_text():
-    """Test HTML processing"""
-    html_content = """<html><head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8"><style type="text/css" style="display:none">
-<!--
-p
-	{margin-top:0;
-	margin-bottom:0}
--->
-</style></head><body dir="ltr"><div class="elementToProof" style="font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif; font-size:11pt; color:rgb(0,0,0)">New Submission</div><div class="elementToProof" style="font-family:Aptos,Aptos_EmbeddedFont,Aptos_MSFontService,Calibri,Helvetica,sans-serif; font-size:11pt; color:rgb(0,0,0)"><br></div></body></html>"""
-    
-    print("1. HTML Processing Test")
-    print("="*50)
-    
-    # Process HTML content
-    soup = BeautifulSoup(html_content, 'html.parser')
-    text_content = soup.get_text(strip=True, separator=' ')
-    
-    print(f"Original HTML length: {len(html_content)}")
-    print(f"Extracted text: '{text_content}'")
-    print(f"Extracted text length: {len(text_content)}")
-    
-    return text_content
+try:
+    from file_parsers import parse_attachments
+    print("✅ Successfully imported full file parser")
+    parser_module = "file_parsers"
+except ImportError as e:
+    print(f"❌ Full parser import failed: {e}")
+    from file_parsers_minimal import parse_attachments
+    print("✅ Using minimal file parser")
+    parser_module = "file_parsers_minimal"
 
-def test_llm_extraction():
-    """Test LLM extraction with the actual content that would be sent"""
-    print("\n2. LLM Extraction Test")
-    print("="*50)
-    
-    # This is what the LLM would receive
-    combined_text = """Email Subject: Submission – Orion Data Technologies Inc.
-From: Vamsi.Sapireddy@valuemomentum.com
-Email Body:
-New Submission
+print(f"Parser module: {parser_module}")
+print(f"Parser function: {parse_attachments}")
 
-Attachment Content:
-[No attachment content for this test]"""
-    
-    print("Input to LLM:")
-    print(combined_text)
-    print("\n" + "-"*40)
-    
-    try:
-        extracted_data = llm_service.extract_insurance_data(combined_text)
-        print("LLM Extracted Data:")
-        if isinstance(extracted_data, dict):
-            for key, value in extracted_data.items():
-                print(f"  {key}: {value}")
-        else:
-            print(f"  Raw result: {extracted_data}")
-        return extracted_data
-    except Exception as e:
-        print(f"LLM Extraction Error: {e}")
-        return {}
+# Your actual attachment data
+your_attachment = [
+    {
+        "filename": "Sample Data - Cyber Insurance Submission Form.pdf",
+        "contentBase64": "JVBERi0xLjcNCiW1tbW1DQoxIDAgb2JqDQo8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFIvTGFuZyhlbikgL1N0cnVjdFRyZWVSb290IDMyIDAgUi9NYXJrSW5mbzw8L01hcmtlZCB0cnVlPj4vTWV0YWRhdGEgNzE2IDAgUi9WaWV3ZXJQcmVmZXJlbmNlcyA3MTcgMCBSPj4NCmVuZG9iag0KMiAwIG9iag0KPDwvVHlwZS9QokTnNtUp7e1Y7y+dWhTZs6bIBWjYFCeSUGoeXLRPLtq82ps5+F/5eNjNhU1kWMOW9Y89TaXplIDcxOS9Sb290IDEgMCBSL0luZm8gMzEgMCBSL0lEWzxGRTk4NzM3NEIzMjM1MjQxOTIyRUVCNTk5OTdFODk4Mz48RkU5ODczNzRCMzIzNTI0MTkyMkVFQjU5OTk3RTg5ODM+XSA+Pg0Kc3RhcnR4cmVmDQo3Mjk3OA0KJTVFT0YNCnhyZWYNCjAgMA0KdHJhaWxlcg0KPDwvU2l6ZSA3MTkvUm9vdCAxIDAgUi9JbmZvIDMxIDAgUi9JRFs8RkU5ODczNzRCMzIzNTI0MTkyMkVFQjU5OTk3RTg5ODM+PEZFOTg3Mzc0QjMyMzUyNDE5MjJFRUI1OTk5N0U4OTgzPl0gL1ByZXYgNzI5NzgvWFJlZlN0bSA3MTM3Nz4+DQpzdGFydHhyZWYNCjg3NTE3DQolJUVPRg=="
+    }
+]
 
-def test_business_rules(extracted_data):
-    """Test business rules processing"""
-    print("\n3. Business Rules Test")
-    print("="*50)
+print(f"\n📄 Testing your PDF attachment...")
+print(f"   Filename: {your_attachment[0]['filename']}")
+print(f"   Content length: {len(your_attachment[0]['contentBase64'])} chars")
+
+# Create uploads directory
+upload_dir = "uploads"
+os.makedirs(upload_dir, exist_ok=True)
+print(f"   Upload directory: {upload_dir}")
+
+try:
+    result = parse_attachments(your_attachment, upload_dir)
+    print(f"\n📋 Attachment processing result:")
+    print(f"   Result type: {type(result)}")
+    print(f"   Result length: {len(result) if result else 0} chars")
     
-    try:
-        print("Testing validation...")
-        validation_status, missing_fields, rejection_reason = CyberInsuranceValidator.validate_submission(extracted_data or {})
-        print(f"Validation Status: {validation_status}")
-        print(f"Missing Fields: {missing_fields}")
-        print(f"Rejection Reason: {rejection_reason}")
+    if "minimal mode" in str(result):
+        print("❌ ERROR: Using minimal parser! Attachments not processed")
+        print(f"   Full result: {result}")
+    elif result and len(result.strip()) > 50:
+        print("✅ SUCCESS: Full parser working, content extracted")
+        print(f"   First 200 chars: {result[:200]}...")
+    elif result and len(result.strip()) > 0:
+        print("⚠️  WARNING: Short result, might be an error message")
+        print(f"   Full result: {result}")
+    else:
+        print("❌ ERROR: No content extracted")
+        print(f"   Result: '{result}'")
         
-        print("\nTesting risk calculation...")
-        risk_priority = CyberInsuranceValidator.calculate_risk_priority(extracted_data or {})
-        print(f"Risk Priority: {risk_priority}")
-        
-        print("\nTesting underwriter assignment...")
-        assigned_underwriter = None
-        if validation_status == "Complete":
-            assigned_underwriter = CyberInsuranceValidator.assign_underwriter(extracted_data or {})
-        print(f"Assigned Underwriter: {assigned_underwriter}")
-        
-        print("\nTesting risk categories...")
-        risk_categories = CyberInsuranceValidator.generate_risk_categories(extracted_data or {})
-        print(f"Risk Categories: {risk_categories}")
-        
-        if risk_categories:
-            overall_risk_score = sum(risk_categories.values()) / len(risk_categories)
-            print(f"Overall Risk Score: {overall_risk_score}")
-        
-    except Exception as e:
-        print(f"Business Rules Error: {e}")
-        import traceback
-        traceback.print_exc()
-
-def main():
-    print("Testing Logic Apps Processing Pipeline")
-    print("="*60)
-    
-    # Test HTML processing
-    text_content = test_html_to_text()
-    
-    # Test LLM extraction
-    extracted_data = test_llm_extraction()
-    
-    # Test business rules
-    test_business_rules(extracted_data)
-
-if __name__ == "__main__":
-    main()
+except Exception as e:
+    print(f"❌ ERROR during processing: {e}")
+    import traceback
+    traceback.print_exc()
