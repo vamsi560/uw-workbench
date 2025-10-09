@@ -79,14 +79,14 @@ class LogicAppsEmailPayload(BaseModel):
 
 class EmailIntakeResponse(BaseModel):
     submission_ref: str
-    submission_id: int
+    submission_id: str  # Changed from int to str
     status: str
     message: str
 
 
 class SubmissionResponse(BaseModel):
     id: int
-    submission_id: int
+    submission_id: str  # Changed from int to str
     submission_ref: str
     subject: str
     sender_email: str
