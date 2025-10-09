@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""
+Compare the complete PDF vs truncated Logic Apps PDF
+"""
+
+import base64
+
+# Complete PDF (working)
+complete_pdf_base64 = "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCgoyIDAgb2JqCjw8Ci9UeXBlIC9QYWdlcwovS2lkcyBbMyAwIFJdCi9Db3VudCAxCj4+CmVuZG9iagoKMyAwIG9iago8PAovVHlwZSAvUGFnZQovUGFyZW50IDIgMCBSCi9NZWRpYUJveCBbMCAwIDYxMiA3OTJdCi9Db250ZW50cyA0IDAgUgo+PgplbmRvYmoKCjQgMCBvYmoKPDwKL0xlbmd0aCA0NAo+PgpzdHJlYW0KQlQKL0YxIDEyIFRmCjEwMCA3MDAgVGQKKFRlc3QgUERGIENvbnRlbnQgLSBPcmlvbiBEYXRhIFRlY2hub2xvZ2llcyBJbmMuKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCgp4cmVmCjAgNQowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyMDYgMDAwMDAgbiAKdHJhaWxlcgo8PAovU2l6ZSA1Ci9Sb290IDEgMCBSCj4+CnN0YXJ0eHJlZgoyOTkKJSVFT0Y="
+
+# Truncated PDF from Logic Apps
+logic_apps_pdf_base64 = "JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgaHR0cDovL3d3dy5yZXBvcnRsYWIuY29tCjEgMCBvYmoKPDwKL0YxIDIgMCBSIC9GMiAzIDAgUgo+PgplbmRvYmoKMiAwIG9iago8PAovQmFzZUZvbnQgL0hlbHZldGljYSAvRW5jb2RpbmcgL1dpbkFuc2lFbmNvZGluZyAvTmFtZSAvRjEgL1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250Cj4+CmVuZG9iagozIDAgb2JqCjw8Ci9CYXNlRm9udCAvSGVsdmV0aWNhLUJvbGQgL0VuY29kaW5nIC9XaW5BbnNpRW5jb2RpbmcgL05hbWUgL0YyIC9TdWJ0eXBlIC9UeXBlMSAvVHlwZSovRm9udAo+PgplbmRvYmoKNCAwIG9iago8PAovQ29udGVudHMgMTAgMCBSIC9NZWRpYUJveCBbIDAgMCA2MTIgNzkyIF0gL1BhcmVudCA5IDAgUiAvUmVzb3VyY2VzIDw8Ci9Gb250IDEgMCBSIC9Qcm9jU2V0IFsgL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSSBdCj4+IC9Sb3RhdGUgMCAvVHJhbnMgPDwKCj4+IAogIC9UeXBlIC9QYWdlCj4+CmVuZG9iago1IDAgb2JqCjw8Ci9Db250ZW50cyAxMSAwIFIgL01lZGlhQm94IFsgMCAwIDYxMiA3OTIgXSAvUGFyZW50IDkgMCBSIC9SZXNvdXJjZXMgPDwKL0ZvbnQgMSAwIFIgL1Byb2NTZXQgWyAvUERGIC9UZXh0IC9JbWFnZUIgL0ltYWdlQyAvSW1hZ2VJIF0KPj4gL1JvdGF0ZSAwIC9UcmFucyA8PAoKPj4gCiAgL1R5cGUgL1BhZ2UKPj4KZW5kb2JqCjYgMCBvYmoKPDwKL0NvbnRlbnRzIDEyIDAgUiAvTWVkaWFCb3ggWyAwIDAgNjEyIDc5MiBdIC9QYXJlbnQgOSAwIFIgL1Jlc291cmNlcyA8PAovRm9udCAxIDAgUiAvUHJvY1NldCBbIC9QREYgL1RleHQgL0ltYWdlQiAvSW1hZ2VJIF0KPj4gL1JvdGF0ZSAwIC9UcmFucyA8PAoKPj4gCiAgL1R5cGUgL1BhZ2UKPj4KZW5kb2JqCjcgMCBvYmoKPDwKL1BhZ2VNb2RlIC9Vc2VOb25lIC9QYWdlcyA5IDAgUiAvVHlwZSAvQ2F0YWxvZwo+PgplbmRvYmoKOCAwIG9iago8PAovQXV0aG9yIChhbm9ueW1vdXMpIC9DcmVhdGlvbkRhdGUgKEQ6MjAyNTEwMDkwNDM2NTcrMDAnMDAnKSAvQ3JlYXRvciAoUmVwb3J0TGFiIFBERiBMaWJyYXJ5IC0gd3d3LnJlcG9ydGxhYi5jb20pIC9LZXl3b3JkcyAoKSAvTW9kRGF0ZSAoRDoyMDI1MTAwOTA0MzY1NyswMCcwMCcpIC9Qcm9kdWNlciAoUmVwb3J0TGFiIFBERiBMaWJyYXJ5IC0gd3d3LnJlcG9ydGxhYi5jb20pIAogIC9TdWJqZWN0ICh1bnNwZWNpZmllZCkgL1RpdGxlICh1bnRpdGxlZCkgL1RyYXBwZWQgL0ZhbHNlCj4+CmVuZG9iago5IDAgb2JqCjw8Ci9Db3VudCAzIC9LaWRzIFsgNCAwIFIgNSAwIFIgNiAwIFIgXSAvVHlwZSAvUGFnZXMKPj4KZW5kb2JqCjEwIDAgb2JqCjw8Ci9GaWx0ZXIgWyAvQVNDSUk4NURlY29kZSAvRmxhdGVEZWNvZGUgXSAvTGVuZ3RoIDEzMTcKPj4Kc3RyZWFtCkdhdFUyYkFRJl0nXSZMNm1cNVZfJkBtLGBbQW4kbkwiYztWT3RxT21oKFRIXlpeIig2UDEiP2JdZWFzLU0yXWVbQHBtNjJQYWxlKm4pSVlWQCxmNEFeWEU2bFFHQThbJFMzNlorRV9hRkwjYF9xcUEjTy4jJkRsKlQrKClMcFFoUUM5R2s+OF40OkchaeTQzNDQ2NTM1IGYgCjAwMDAwMDAwNzMgMDAwMDAgbiAKMDAwMDAwMDExNCAwMDAwMCBuIAowMDAwMDAwMjIxIDAwMDAwIG4gCjAwMDAwMDAzMzMgMDAwMDAgbiAKMDAwMDAwMDUyNyAwMDAwMCBuIAowMDAwMDAwNzIxIDAwMDAwIG4gCjAwMDAwMDA5MTUgMDAwMDAgbiAKMDAwMDAwMDk4MyAwMDAwMCBuIAowMDAwMDAxMjc5IDAwMDAwIG4gCjAwMDAwMDEzNTAgMDAwMDAgbiAKMDAwMDAwMjc1OSAwMDAwMCBuIAowMDAwMDA0MDM1IDAwMDAwIG4gCnRyYWlsZXIKPDwKL0lEIApbPDJhYzU3NjE2OWE1NzM3ZDRlNzAxZTExNTk4NWYyNmU5PjwyYWM1NzYxNjlhNTczN2Q0ZTcwMWUxMTU5ODVmMjZlOT5dCiUgUmVwb3J0TGFiIGdlbmVyYXRlZCBQREYgZG9jdW1lbnQgLS0gZGlnZXN0IChodHRwOi8vd3d3LnJlcG9ydGxhYi5jb20pCgovSW5mbyA4IDAgUgovUm9vdCA3IDAgUgovU2l6ZSAxMwo+PgpzdGFydHhyZWYKNTUwOQolJUVPRgo="
+
+print("📊 PDF Comparison Analysis")
+print("=" * 50)
+
+# Decode both PDFs
+complete_pdf = base64.b64decode(complete_pdf_base64)
+logic_apps_pdf = base64.b64decode(logic_apps_pdf_base64)
+
+print(f"Complete PDF size:    {len(complete_pdf):,} bytes")  
+print(f"Logic Apps PDF size:  {len(logic_apps_pdf):,} bytes")
+print(f"Missing bytes:        {len(complete_pdf) - len(logic_apps_pdf):,} bytes ({((len(complete_pdf) - len(logic_apps_pdf)) / len(complete_pdf) * 100):.1f}% missing)")
+
+# Check PDF structure
+print(f"\n📄 PDF Structure Analysis:")
+print(f"Complete PDF ends with:   '{complete_pdf[-20:].decode('latin-1', errors='ignore')}'")
+print(f"Logic Apps PDF ends with: '{logic_apps_pdf[-20:].decode('latin-1', errors='ignore')}'")
+
+if b'%%EOF' in complete_pdf:
+    print(f"✅ Complete PDF has %%EOF marker")
+else:
+    print(f"❌ Complete PDF missing %%EOF marker")
+    
+if b'%%EOF' in logic_apps_pdf:
+    print(f"✅ Logic Apps PDF has %%EOF marker")
+else:
+    print(f"❌ Logic Apps PDF missing %%EOF marker")
+
+print(f"\n🎯 SOLUTION NEEDED:")
+print(f"Logic Apps is truncating PDF attachments at ~2KB")
+print(f"You need to fix the Logic Apps email connector configuration")
+print(f"Look for file size limits or content processing settings")
+
+print(f"\n🧪 Quick Test - Try sending a VERY small PDF (< 1KB) to see if it gets captured completely")
+print(f"This will help isolate if it's a size limit issue in Logic Apps")

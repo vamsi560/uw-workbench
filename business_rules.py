@@ -26,6 +26,7 @@ class CyberInsuranceValidator:
     # Accepted policy types for cyber insurance
     ACCEPTED_POLICY_TYPES = [
         "Cyber Liability",
+        "Comprehensive Cyber Liability",  # Added comprehensive coverage
         "Privacy Liability", 
         "Data Breach Response",
         "Technology E&O",

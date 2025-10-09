@@ -50,8 +50,8 @@ def check_recent_submissions():
             else:
                 print(f"\nExtracted Fields: None")
             
-            # Check for corresponding work items
-            work_items = db.query(WorkItem).filter(WorkItem.submission_id == sub.submission_id).all()
+            # Check for corresponding work items (use internal database ID, not submission_id field)
+            work_items = db.query(WorkItem).filter(WorkItem.submission_id == sub.id).all()
             if work_items:
                 print(f"\nWork Items: {len(work_items)}")
                 for wi in work_items:
